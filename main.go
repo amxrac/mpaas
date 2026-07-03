@@ -14,25 +14,37 @@ import (
 	"time"
 )
 
-var errInvalidGitHubRepoURL = errors.New("invalid github repository url")
+var errInvalidGitHubRepoURL = errors.New("invalid github repo url")
 var validRepoName = regexp.MustCompile(`^[A-Za-z0-9_.-]+$`)
 
 func main() {
 	fmt.Print("enter a github repo url: ")
+
 	scanner := bufio.NewScanner(os.Stdin)
 	scanner.Scan()
 	input := scanner.Text()
+
 	if err := scanner.Err(); err != nil {
 		fmt.Fprintf(os.Stderr, "error reading input: %v\n", err)
 		os.Exit(1)
 	}
-	ctx := context.Background()
-	dir, err := cloneRepo(ctx, input)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
+	defer cancel()
+
+	dir, repoName, err := cloneRepo(ctx, input)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "error:  %v\n", err)
 		os.Exit(1)
 	}
-	fmt.Println("repo: ", dir)
+
+	err = buildContainerImage(ctx, dir, repoName)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "error:  %v\n", err)
+		os.Exit(1)
+	}
+
+	fmt.Println("container image: ", repoName)
 }
 
 func parseGitHubRepoURL(input string) (*url.URL, string, error) {
@@ -50,33 +62,33 @@ func parseGitHubRepoURL(input string) (*url.URL, string, error) {
 	return u, parts[1], nil
 }
 
-func cloneRepo(ctx context.Context, repoURL string) (string, error) {
+func cloneRepo(ctx context.Context, repoURL string) (string, string, error) {
 	u, repoName, err := parseGitHubRepoURL(repoURL)
 	if err != nil {
-		return "", err
+		return "", "", err
 	}
 	parent, err := os.MkdirTemp("", "repo-*")
 	if err != nil {
-		return "", fmt.Errorf("mkdir temp: %w", err)
+		return "", "", fmt.Errorf("mkdir temp: %w", err)
 	}
 	dir := filepath.Join(parent, repoName)
 
-	ctx, cancel := context.WithTimeout(ctx, 4*time.Minute)
+	cloneCtx, cancel := context.WithTimeout(ctx, 4*time.Minute)
 	defer cancel()
 
-	cmd := exec.CommandContext(ctx, "git", "clone", u.String(), dir)
+	cmd := exec.CommandContext(cloneCtx, "git", "clone", u.String(), dir)
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	err = cmd.Run()
 	if err != nil {
 		_ = os.RemoveAll(parent)
-		return "", fmt.Errorf("git clone: %w", err)
+		return "", "", fmt.Errorf("git clone: %w", err)
 	}
 
 	entries, err := os.ReadDir(dir)
 	if err != nil {
 		_ = os.RemoveAll(parent)
-		return "", fmt.Errorf("read cloned dir: %w", err)
+		return "", "", fmt.Errorf("read cloned dir: %w", err)
 	}
 	hasFiles := false
 	for _, e := range entries {
@@ -87,7 +99,64 @@ func cloneRepo(ctx context.Context, repoURL string) (string, error) {
 	}
 	if !hasFiles {
 		_ = os.RemoveAll(parent)
-		return "", fmt.Errorf("cloned repo %s has no files (empty default branch?)", dir)
+		return "", "", fmt.Errorf("cloned repo %s has no files (empty default branch?)", dir)
 	}
-	return dir, nil
+	return dir, repoName, nil
+}
+
+func ensureDockerRunning(ctx context.Context) error {
+	_, err := exec.CommandContext(ctx,
+		"docker",
+		"info",
+	).CombinedOutput()
+
+	if err != nil {
+		return fmt.Errorf("docker is not running or unavailable. please restart docker to continue. %w\n", err)
+	}
+	return nil
+}
+
+func buildContainerImage(ctx context.Context, buildDir, imageName string) error {
+	err := ensureDockerRunning(ctx)
+	if err != nil {
+		return err
+	}
+
+	fmt.Println("building container image...")
+
+	planPath := filepath.Join(buildDir, "railpack-plan.json")
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
+	defer cancel()
+
+	out, err := exec.CommandContext(
+		ctx,
+		"railpack",
+		"prepare",
+		buildDir,
+		"--plan-out",
+		planPath,
+		"--info-out",
+		filepath.Join(buildDir, "railpack-info.json"),
+	).CombinedOutput()
+
+	if err != nil {
+		return fmt.Errorf("railpack prepare: %w\n%s", err, out)
+	}
+
+	out, err = exec.CommandContext(
+		ctx,
+		"docker", "buildx", "build",
+		"--build-arg", "BUILDKIT_SYNTAX=ghcr.io/railwayapp/railpack-frontend",
+		"-f", planPath,
+		"--progress=rawjson",
+		"-t", imageName,
+		"--load",
+		buildDir,
+	).CombinedOutput()
+
+	if err != nil {
+		return fmt.Errorf("docker buildx build: %w\n%s", err, out)
+	}
+	return nil
 }
