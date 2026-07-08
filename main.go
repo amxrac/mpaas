@@ -5,7 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"net"
+	"io"
 	"net/http"
 	"net/url"
 	"os"
@@ -15,6 +15,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/amxrac/mpaas/internal/docker"
 )
 
 var errInvalidGitHubRepoURL = errors.New("invalid github repo url")
@@ -85,34 +87,7 @@ func cloneRepo(ctx context.Context, repoURL string) (dir, ownerName, repoName st
 	return dir, ownerName, repoName, nil
 }
 
-func ensureDockerRunning(ctx context.Context) error {
-	_, err := exec.CommandContext(ctx,
-		"docker",
-		"info",
-	).CombinedOutput()
-
-	if err != nil {
-		return fmt.Errorf("docker not running or unavailable: %w", err)
-	}
-	return nil
-}
-
-func ensureNetwork(ctx context.Context, networkName string) error {
-	if err := exec.CommandContext(ctx, "docker", "network", "inspect", networkName).Run(); err == nil {
-		return nil
-	}
-	if out, err := exec.CommandContext(ctx, "docker", "network", "create", networkName).CombinedOutput(); err != nil {
-		return fmt.Errorf("create network: %w\n%s", err, out)
-	}
-	return nil
-}
-
 func buildContainerImage(ctx context.Context, buildDir, imageName string) error {
-	err := ensureDockerRunning(ctx)
-	if err != nil {
-		return err
-	}
-
 	fmt.Println("building container image...")
 
 	planPath := filepath.Join(buildDir, "railpack-plan.json")
@@ -150,43 +125,6 @@ func buildContainerImage(ctx context.Context, buildDir, imageName string) error 
 		return fmt.Errorf("docker buildx build: %w\n%s", err, out)
 	}
 	return nil
-}
-
-func runContainer(ctx context.Context, containerPort, containerName, imageName, network string) (string, error) {
-	if containerPort == "" {
-		containerPort = "8080"
-	}
-
-	out, err := exec.CommandContext(ctx,
-		"docker", "run", "-d",
-		"--name", containerName,
-		"--network", network,
-		"-e", "PORT="+containerPort,
-		"-p", "0:"+containerPort,
-		imageName,
-	).CombinedOutput()
-	if err != nil {
-		return "", fmt.Errorf("docker run: %w\n%s", err, out)
-	}
-
-	format := fmt.Sprintf(
-		"{{(index (index .NetworkSettings.Ports %q) 0).HostPort}}",
-		containerPort+"/tcp",
-	)
-
-	out, err = exec.CommandContext(
-		ctx,
-		"docker",
-		"inspect",
-		"-f",
-		format,
-		containerName,
-	).CombinedOutput()
-	if err != nil {
-		return "", fmt.Errorf("docker inspect: %w\n%s", err, out)
-	}
-
-	return strings.TrimSpace(string(out)), nil
 }
 
 func validateContainerPort(port string) error {
@@ -232,14 +170,16 @@ func httpHealthCheck(ctx context.Context, url string) error {
 }
 
 func run() error {
+	scanner := bufio.NewScanner(os.Stdin)
+
 	fmt.Print("enter a github repo url: ")
 
-	scanner := bufio.NewScanner(os.Stdin)
-	scanner.Scan()
-
-	err := scanner.Err()
-	if err != nil {
-		return fmt.Errorf("error reading input: %w\n", err)
+	if !scanner.Scan() {
+		err := scanner.Err()
+		if err != nil {
+			return fmt.Errorf("read repo URL: %w", err)
+		}
+		return io.EOF
 	}
 
 	input := scanner.Text()
@@ -247,7 +187,13 @@ func run() error {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
 	defer cancel()
 
-	err = ensureDockerRunning(ctx)
+	d, err := docker.NewClient(ctx)
+	if err != nil {
+		return err
+	}
+	defer d.Close()
+
+	err = d.Ping(ctx)
 	if err != nil {
 		return err
 	}
@@ -263,7 +209,8 @@ func run() error {
 	containerName := strings.ToLower(ownerName + "-" + repoName + "-" + deployID)
 
 	const networkName = "deploy-net"
-	err = ensureNetwork(ctx, networkName)
+
+	err = d.EnsureNetwork(ctx, networkName)
 	if err != nil {
 		return err
 	}
@@ -273,26 +220,33 @@ func run() error {
 		return err
 	}
 
-	fmt.Print("enter port: ")
+	fmt.Print("enter app port: ")
 
-	port := bufio.NewScanner(os.Stdin)
-	port.Scan()
-	if err := port.Err(); err != nil {
-		return fmt.Errorf("error reading input: %w\n", err)
+	if !scanner.Scan() {
+		err := scanner.Err()
+		if err != nil {
+			return fmt.Errorf("read app port: %w", err)
+		}
 	}
 
-	containerPort := port.Text()
+	containerPort := scanner.Text()
 	err = validateContainerPort(containerPort)
 	if err != nil {
 		return err
 	}
 
-	hostPort, err := runContainer(ctx, containerPort, containerName, imageName, networkName)
+	containerID, hostPort, err := d.RunContainer(ctx, containerPort, containerName, imageName, deployID, networkName)
 	if err != nil {
 		return err
 	}
 
-	addr := net.JoinHostPort("127.0.0.1", hostPort)
+	success := false
+	defer func() {
+		if !success {
+			_ = d.Remove(context.Background(), containerID)
+		}
+	}()
+
 	detectCtx, dCancel := context.WithTimeout(ctx, 30*time.Second)
 	defer dCancel()
 
@@ -302,6 +256,8 @@ func run() error {
 		return fmt.Errorf("health check: %w", err)
 	}
 
-	fmt.Printf("container %q is listening on %s\n", containerName, addr)
+	success = true
+
+	fmt.Printf("container %q is listening on %s\n", containerName, url)
 	return nil
 }
