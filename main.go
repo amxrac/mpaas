@@ -249,7 +249,14 @@ func run() error {
 		return err
 	}
 
-	containerID, hostPort, err := d.RunContainer(ctx, containerPort, containerName, imageName, deployID, networkName)
+	containerID, err := d.RunContainer(ctx, docker.RunContainerOpts{
+		ContainerPort: containerPort,
+		ContainerName: containerName,
+		ImageName:     imageName,
+		DeployID:      deployID,
+		NetworkName:   networkName,
+	})
+
 	if err != nil {
 		return err
 	}
@@ -261,25 +268,21 @@ func run() error {
 		}
 	}()
 
-	detectCtx, dCancel := context.WithTimeout(ctx, 30*time.Second)
-	defer dCancel()
-
-	url := fmt.Sprintf("http://127.0.0.1:%s/", hostPort)
-	err = httpHealthCheck(detectCtx, url)
-	if err != nil {
-		return fmt.Errorf("health check: %w", err)
-	}
-
-	success = true
-
-	fmt.Printf("container %q is listening on %s\n", containerName, url)
-
-	host := strings.ToLower(ownerName+"-"+repoName) + ".localhost"
 	port, err := strconv.Atoi(containerPort)
-
 	if err != nil {
 		return fmt.Errorf("parse container port: %w", err)
 	}
+	healthCtx, dCancel := context.WithTimeout(ctx, 30*time.Second)
+	defer dCancel()
+
+	err = d.CaddyhttpHealthCheck(healthCtx, containerName, port)
+	if err != nil {
+		return fmt.Errorf("http error. app not reachable from caddy: %w", err)
+	}
+
+	fmt.Printf("app passed health check\n")
+
+	host := strings.ToLower(ownerName+"-"+repoName) + ".localhost"
 
 	deploymentID := strings.ToLower(ownerName + "-" + repoName)
 
@@ -297,6 +300,8 @@ func run() error {
 	if err != nil {
 		return fmt.Errorf("add caddy route: %w", err)
 	}
+
+	success = true
 
 	fmt.Printf("routed at http://%s\n", host)
 

@@ -9,6 +9,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"time"
 
 	cerrdefs "github.com/containerd/errdefs"
 	"github.com/moby/moby/api/types/container"
@@ -24,6 +25,14 @@ const (
 
 type Client struct {
 	cli *client.Client
+}
+
+type RunContainerOpts struct {
+	ContainerPort string
+	ContainerName string
+	ImageName     string
+	DeployID      string
+	NetworkName   string
 }
 
 func NewClient(ctx context.Context) (*Client, error) {
@@ -145,64 +154,46 @@ func (c *Client) EnsureCaddy(ctx context.Context, caddyfilePath, networkName str
 	return nil
 }
 
-func (c *Client) RunContainer(ctx context.Context, containerPort, containerName, imageName, deployID, networkName string) (containerID, hostPort string, err error) {
-	if containerPort == "" {
-		containerPort = "8080"
+func (c *Client) RunContainer(ctx context.Context, opts RunContainerOpts) (containerID string, err error) {
+	if opts.ContainerPort == "" {
+		opts.ContainerPort = "8080"
 	}
 
-	port, err := network.ParsePort(containerPort + "/tcp")
+	port, err := network.ParsePort(opts.ContainerPort + "/tcp")
 	if err != nil {
-		return "", "", fmt.Errorf("invalid container port %q: %w", containerPort, err)
+		return "", fmt.Errorf("invalid container port %q: %w", opts.ContainerPort, err)
 	}
 
 	labels := labelMap()
-	labels["deploy-id"] = deployID
+	labels["deploy-id"] = opts.DeployID
 
 	cfg := &container.Config{
-		Image:        imageName,
-		Env:          []string{"PORT=" + containerPort},
+		Image:        opts.ImageName,
+		Env:          []string{"PORT=" + opts.ContainerPort},
 		Labels:       labels,
 		ExposedPorts: network.PortSet{port: {}},
 	}
 
 	hostCfg := &container.HostConfig{
-		PortBindings: network.PortMap{
-			port: {
-				{
-					HostIP:   netip.MustParseAddr("0.0.0.0"),
-					HostPort: "",
-				},
-			},
-		},
-	}
-
-	netCfg := &network.NetworkingConfig{
-		EndpointsConfig: map[string]*network.EndpointSettings{networkName: {}},
+		NetworkMode: container.NetworkMode(opts.NetworkName),
 	}
 
 	created, err := c.cli.ContainerCreate(ctx, client.ContainerCreateOptions{
-		Config:           cfg,
-		HostConfig:       hostCfg,
-		NetworkingConfig: netCfg,
-		Name:             containerName,
+		Config:     cfg,
+		HostConfig: hostCfg,
+		Name:       opts.ContainerName,
 	})
 	if err != nil {
-		return "", "", fmt.Errorf("container create: %w", err)
+		return "", fmt.Errorf("container create: %w", err)
 	}
 
 	_, err = c.cli.ContainerStart(ctx, created.ID, client.ContainerStartOptions{})
 	if err != nil {
 		_ = c.Remove(ctx, created.ID)
-		return "", "", fmt.Errorf("container start: %w", err)
+		return "", fmt.Errorf("container start: %w", err)
 	}
 
-	hostPort, err = c.getHostPort(ctx, created.ID, port)
-	if err != nil {
-		_ = c.Remove(ctx, created.ID)
-		return "", "", fmt.Errorf("get host port: %w", err)
-	}
-
-	return created.ID, hostPort, err
+	return created.ID, err
 }
 
 func (c *Client) Stop(ctx context.Context, containerID string, timeoutSecs int) error {
@@ -253,6 +244,40 @@ func (c *Client) Logs(ctx context.Context, containerID string, follow bool) (io.
 		Follow:     true,
 		Timestamps: true,
 	})
+}
+
+func (c *Client) CaddyhttpHealthCheck(ctx context.Context, targetHost string, targetPort int) error {
+	resp, err := c.cli.ExecCreate(ctx, caddyContainerName, client.ExecCreateOptions{
+		Cmd: []string{"wget", "-q", "-T", "2", "-O", "/dev/null",
+			fmt.Sprintf("http://%s:%d/", targetHost, targetPort)},
+	})
+	if err != nil {
+		return fmt.Errorf("create healthcheck exec: %w", err)
+	}
+
+	_, err = c.cli.ExecStart(ctx, resp.ID, client.ExecStartOptions{})
+	if err != nil {
+		return fmt.Errorf("start healthcheck exec: %w", err)
+	}
+
+	for {
+		inspect, err := c.cli.ExecInspect(ctx, resp.ID, client.ExecInspectOptions{})
+		if err != nil {
+			return fmt.Errorf("inspect healthcheck exec: %w", err)
+		}
+		if !inspect.Running {
+			if inspect.ExitCode != 0 {
+				return fmt.Errorf("healthcheck failed: wget exited %d", inspect.ExitCode)
+			}
+			return nil
+		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(100 * time.Millisecond):
+		}
+	}
+
 }
 
 func (c *Client) getHostPort(ctx context.Context, containerID string, port network.Port) (string, error) {
