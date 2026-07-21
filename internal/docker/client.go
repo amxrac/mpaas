@@ -7,6 +7,7 @@ import (
 	"net/netip"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 
 	cerrdefs "github.com/containerd/errdefs"
@@ -15,7 +16,11 @@ import (
 	"github.com/moby/moby/client"
 )
 
-const ManagedLabel = "managed-by=mpaas"
+const (
+	caddyContainerName = "caddy"
+	caddyImage         = "caddy:2.11.4-alpine"
+	ManagedLabel       = "managed-by=mpaas"
+)
 
 type Client struct {
 	cli *client.Client
@@ -56,6 +61,88 @@ func (c *Client) EnsureNetwork(ctx context.Context, name string) error {
 		return nil
 	}
 	return fmt.Errorf("create network %q: %w", name, err)
+}
+
+func (c *Client) EnsureCaddy(ctx context.Context, caddyfilePath, networkName string) error {
+	info, err := c.cli.ContainerInspect(ctx, caddyContainerName, client.ContainerInspectOptions{})
+
+	if err == nil {
+		if info.Container.State.Running {
+			return nil
+		}
+		_, err = c.cli.ContainerStart(ctx, caddyContainerName, client.ContainerStartOptions{})
+		if err != nil {
+			_ = c.Remove(ctx, caddyContainerName)
+			return fmt.Errorf("start existing caddy container: %w", err)
+		}
+	}
+
+	if !cerrdefs.IsNotFound(err) {
+		return fmt.Errorf("inspect caddy container: %w", err)
+	}
+
+	absCaddyfile, err := filepath.Abs(caddyfilePath)
+	if err != nil {
+		return fmt.Errorf("resolve caddyfile path: %w", err)
+	}
+
+	fileInfo, err := os.Stat(absCaddyfile)
+	if err != nil {
+		return fmt.Errorf("caddyfile not found at %s: %w", absCaddyfile, err)
+	}
+	if fileInfo.IsDir() {
+		return fmt.Errorf("expected a file at %s, found a directory", absCaddyfile)
+	}
+
+	r, err := c.cli.ImagePull(ctx, caddyImage, client.ImagePullOptions{})
+	if err != nil {
+		return fmt.Errorf("pull caddy image %q: %w", caddyImage, err)
+	}
+	defer r.Close()
+
+	_, err = io.Copy(io.Discard, r)
+	if err != nil {
+		return fmt.Errorf("pull caddy image %q: %w", caddyImage, err)
+	}
+
+	labels := labelMap()
+
+	cfg := &container.Config{
+		Image:  caddyImage,
+		Labels: labels,
+	}
+
+	hostCfg := &container.HostConfig{
+		Binds: []string{absCaddyfile + ":/etc/caddy/Caddyfile:ro"},
+		PortBindings: network.PortMap{
+			network.MustParsePort("80/tcp"):   {{HostIP: netip.MustParseAddr("0.0.0.0"), HostPort: "80"}},
+			network.MustParsePort("443/tcp"):  {{HostIP: netip.MustParseAddr("0.0.0.0"), HostPort: "443"}},
+			network.MustParsePort("2019/tcp"): {{HostIP: netip.MustParseAddr("127.0.0.1"), HostPort: "2019"}},
+		},
+	}
+
+	netCfg := &network.NetworkingConfig{
+		EndpointsConfig: map[string]*network.EndpointSettings{networkName: {}},
+	}
+
+	created, err := c.cli.ContainerCreate(ctx, client.ContainerCreateOptions{
+		Config:           cfg,
+		HostConfig:       hostCfg,
+		NetworkingConfig: netCfg,
+		Name:             caddyContainerName,
+	})
+
+	if err != nil {
+		return fmt.Errorf("create caddy container: %w", err)
+	}
+
+	_, err = c.cli.ContainerStart(ctx, created.ID, client.ContainerStartOptions{})
+	if err != nil {
+		_ = c.Remove(ctx, created.ID)
+		return fmt.Errorf("start caddy container: %w", err)
+	}
+
+	return nil
 }
 
 func (c *Client) RunContainer(ctx context.Context, containerPort, containerName, imageName, deployID, networkName string) (containerID, hostPort string, err error) {

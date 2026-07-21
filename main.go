@@ -16,6 +16,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/amxrac/mpaas/internal/caddy"
 	"github.com/amxrac/mpaas/internal/docker"
 )
 
@@ -88,7 +89,7 @@ func cloneRepo(ctx context.Context, repoURL string) (dir, ownerName, repoName st
 }
 
 func buildContainerImage(ctx context.Context, buildDir, imageName string) error {
-	fmt.Println("building container image...")
+	fmt.Println("building app container image...")
 
 	planPath := filepath.Join(buildDir, "railpack-plan.json")
 
@@ -215,6 +216,19 @@ func run() error {
 		return err
 	}
 
+	err = d.EnsureCaddy(ctx, "./config/Caddyfile", networkName)
+	if err != nil {
+		return err
+	}
+
+	c := caddy.NewClient("http://localhost:2019")
+
+	err = c.EnsureCaddyReady(ctx, 90*time.Second)
+	if err != nil {
+		return err
+	}
+	fmt.Printf("caddy container is up\n")
+
 	err = buildContainerImage(ctx, dir, imageName)
 	if err != nil {
 		return err
@@ -259,5 +273,32 @@ func run() error {
 	success = true
 
 	fmt.Printf("container %q is listening on %s\n", containerName, url)
+
+	host := strings.ToLower(ownerName+"-"+repoName) + ".localhost"
+	port, err := strconv.Atoi(containerPort)
+
+	if err != nil {
+		return fmt.Errorf("parse container port: %w", err)
+	}
+
+	deploymentID := strings.ToLower(ownerName + "-" + repoName)
+
+	err = c.RemoveRoute(ctx, deploymentID)
+	if err != nil {
+		return fmt.Errorf("remove caddy route: %w", err)
+	}
+
+	err = c.AddRoute(ctx, caddy.RouteOpts{
+		DeploymentID: deploymentID,
+		Host:         host,
+		Upstream:     fmt.Sprintf("%s:%d", containerName, port),
+	})
+
+	if err != nil {
+		return fmt.Errorf("add caddy route: %w", err)
+	}
+
+	fmt.Printf("routed at http://%s\n", host)
+
 	return nil
 }
