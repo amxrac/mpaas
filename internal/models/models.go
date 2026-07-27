@@ -2,9 +2,6 @@ package models
 
 import (
 	"time"
-
-	"github.com/nrednav/cuid2"
-	"gorm.io/gorm"
 )
 
 type Status string
@@ -18,7 +15,7 @@ const (
 )
 
 type Deployment struct {
-	ID            string    `json:"id" gorm:"primaryKey"`
+	ID            string    `json:"id" gorm:"primaryKey;autoIncrement"`
 	Name          string    `json:"name"`
 	Status        Status    `json:"status" gorm:"default:pending"`
 	GithubURL     string    `gorm:"not null" json:"github_url"`
@@ -31,23 +28,9 @@ type Deployment struct {
 }
 
 type LogEntry struct {
-	ID           string      `gorm:"primaryKey;" json:"id"`
+	ID           string      `gorm:"primaryKey;autoIncrement" json:"id"`
 	DeploymentID string      `gorm:"type:cuid;not null;index" json:"deployment_id"`
 	Message      string      `gorm:"not null" json:"message"`
 	CreatedAt    time.Time   `gorm:"autoCreateTime" json:"created_at"`
 	Deployment   *Deployment `gorm:"foreignKey:DeploymentID;constraint:OnDelete:CASCADE"`
-}
-
-func (d *Deployment) BeforeCreate(tx *gorm.DB) error {
-	if d.ID == "" {
-		d.ID = cuid2.Generate()
-	}
-	return nil
-}
-
-func (l *LogEntry) BeforeCreate(tx *gorm.DB) error {
-	if l.ID == "" {
-		l.ID = cuid2.Generate()
-	}
-	return nil
 }

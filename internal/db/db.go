@@ -14,12 +14,12 @@ type DB struct {
 	conn *gorm.DB
 }
 
-func ConnectDB(dsn string) (*gorm.DB, error) {
+func ConnectDB(dsn string) (*DB, error) {
 	conn, err := gorm.Open(gormlite.Open(dsn+"?_pragma=foreign_keys(1)&_pragma=journal_mode(WAL)"), &gorm.Config{})
 	if err != nil {
 		return nil, fmt.Errorf("connect db: %w", err)
 	}
-	return conn, nil
+	return NewDB(conn), nil
 }
 
 func (db *DB) CloseDB() error {
@@ -95,7 +95,7 @@ func (db *DB) DeleteDeployment(ctx context.Context, id string) error {
 	return nil
 }
 
-func (db *DB) InsertLogEntry(ctx context.Context, message, deploymentID string) error {
+func (db *DB) InsertLog(ctx context.Context, message, deploymentID string) (string, error) {
 	entry := models.LogEntry{
 		DeploymentID: deploymentID,
 		Message:      message,
@@ -103,20 +103,20 @@ func (db *DB) InsertLogEntry(ctx context.Context, message, deploymentID string) 
 
 	err := db.conn.WithContext(ctx).Create(&entry).Error
 	if err != nil {
-		return fmt.Errorf("insert log entry: %w", err)
+		return "", fmt.Errorf("insert log entry: %w", err)
 	}
 
-	return nil
+	return entry.ID, nil
 }
 
-func (db *DB) GetLogEntryByDeploymentID(ctx context.Context, deploymentID string) ([]models.LogEntry, error) {
+func (db *DB) GetLogsAfterID(ctx context.Context, deploymentID string, lastID int64) ([]models.LogEntry, error) {
 	var entries []models.LogEntry
 	err := db.conn.WithContext(ctx).
-		Where("deployment_id = ?", deploymentID).
-		Order("created_at ASC").
+		Where("deployment_id = ? AND id > ?", deploymentID, lastID).
+		Order("id ASC").
 		Find(&entries).Error
 	if err != nil {
-		return nil, fmt.Errorf("get logs for deployment %q: %w", deploymentID, err)
+		return nil, fmt.Errorf("get logs for deployment %q after id %d: %w", deploymentID, lastID, err)
 	}
 	return entries, nil
 
