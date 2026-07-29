@@ -2,6 +2,9 @@ package models
 
 import (
 	"time"
+
+	"github.com/oklog/ulid/v2"
+	"gorm.io/gorm"
 )
 
 type Status string
@@ -15,7 +18,7 @@ const (
 )
 
 type Deployment struct {
-	ID            string    `json:"id" gorm:"primaryKey;autoIncrement"`
+	ID            string    `json:"id" gorm:"primaryKey"`
 	Name          string    `json:"name"`
 	Status        Status    `json:"status" gorm:"default:pending"`
 	GithubURL     string    `gorm:"not null" json:"github_url"`
@@ -28,9 +31,23 @@ type Deployment struct {
 }
 
 type LogEntry struct {
-	ID           string      `gorm:"primaryKey;autoIncrement" json:"id"`
-	DeploymentID string      `gorm:"type:cuid;not null;index" json:"deployment_id"`
+	ID           string      `gorm:"primaryKey" json:"id"`
+	DeploymentID string      `gorm:"not null;index" json:"deployment_id"`
 	Message      string      `gorm:"not null" json:"message"`
 	CreatedAt    time.Time   `gorm:"autoCreateTime" json:"created_at"`
 	Deployment   *Deployment `gorm:"foreignKey:DeploymentID;constraint:OnDelete:CASCADE"`
+}
+
+func (d *Deployment) BeforeCreate(tx *gorm.DB) error {
+	if d.ID == "" {
+		d.ID = ulid.Make().String()
+	}
+	return nil
+}
+
+func (l *LogEntry) BeforeCreate(tx *gorm.DB) error {
+	if l.ID == "" {
+		l.ID = ulid.Make().String()
+	}
+	return nil
 }

@@ -43,7 +43,7 @@ func (db *DB) Migrate(models ...any) error {
 }
 
 func (db *DB) InsertDeployment(ctx context.Context, dep *models.Deployment) error {
-	err := db.conn.WithContext(ctx).Create(&dep).Error
+	err := db.conn.WithContext(ctx).Create(dep).Error
 	if err != nil {
 		return fmt.Errorf("insert deployment: %w", err)
 	}
