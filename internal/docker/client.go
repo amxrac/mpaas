@@ -154,14 +154,14 @@ func (c *Client) EnsureCaddy(ctx context.Context, caddyfilePath, networkName str
 	return nil
 }
 
-func (c *Client) RunContainer(ctx context.Context, opts RunContainerOpts) (containerID string, err error) {
+func (c *Client) RunContainer(ctx context.Context, opts RunContainerOpts) (containerID string, resolvedPort int, err error) {
 	if opts.ContainerPort == "" {
 		opts.ContainerPort = "8080"
 	}
 
 	port, err := network.ParsePort(opts.ContainerPort + "/tcp")
 	if err != nil {
-		return "", fmt.Errorf("invalid container port %q: %w", opts.ContainerPort, err)
+		return "", 0, fmt.Errorf("invalid container port %q: %w", opts.ContainerPort, err)
 	}
 
 	labels := labelMap()
@@ -184,16 +184,16 @@ func (c *Client) RunContainer(ctx context.Context, opts RunContainerOpts) (conta
 		Name:       opts.ContainerName,
 	})
 	if err != nil {
-		return "", fmt.Errorf("container create: %w", err)
+		return "", int(port.Num()), fmt.Errorf("container create: %w", err)
 	}
 
 	_, err = c.cli.ContainerStart(ctx, created.ID, client.ContainerStartOptions{})
 	if err != nil {
 		_ = c.Remove(ctx, created.ID)
-		return "", fmt.Errorf("container start: %w", err)
+		return "", 0, fmt.Errorf("container start: %w", err)
 	}
 
-	return created.ID, err
+	return created.ID, int(port.Num()), err
 }
 
 func (c *Client) Stop(ctx context.Context, containerID string, timeoutSecs int) error {

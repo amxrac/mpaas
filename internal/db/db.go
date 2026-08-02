@@ -72,10 +72,10 @@ func (db *DB) ListDeployments(ctx context.Context) ([]models.Deployment, error) 
 	return deps, nil
 }
 
-func (db *DB) UpdateDeployment(ctx context.Context, dep models.Deployment) error {
+func (db *DB) UpdateDeployment(ctx context.Context, dep *models.Deployment) error {
 	err := db.conn.WithContext(ctx).Model(&models.Deployment{}).Where("id = ?", dep.ID).Updates(map[string]any{
 		"status":         dep.Status,
-		"image_tag":      dep.ImageTag,
+		"image_tag":      dep.ImageName,
 		"container_name": dep.ContainerName,
 		"container_port": dep.ContainerPort,
 		"caddy_route":    dep.CaddyRoute,
@@ -95,7 +95,7 @@ func (db *DB) DeleteDeployment(ctx context.Context, id string) error {
 	return nil
 }
 
-func (db *DB) InsertLog(ctx context.Context, message, deploymentID string) (string, error) {
+func (db *DB) InsertLog(ctx context.Context, message, deploymentID string) (*models.LogEntry, error) {
 	entry := models.LogEntry{
 		DeploymentID: deploymentID,
 		Message:      message,
@@ -103,10 +103,10 @@ func (db *DB) InsertLog(ctx context.Context, message, deploymentID string) (stri
 
 	err := db.conn.WithContext(ctx).Create(&entry).Error
 	if err != nil {
-		return "", fmt.Errorf("insert log entry: %w", err)
+		return nil, fmt.Errorf("insert log entry: %w", err)
 	}
 
-	return entry.ID, nil
+	return &entry, nil
 }
 
 func (db *DB) GetLogsAfterID(ctx context.Context, deploymentID string, lastID int64) ([]models.LogEntry, error) {

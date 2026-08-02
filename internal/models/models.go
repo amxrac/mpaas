@@ -15,6 +15,7 @@ const (
 	StatusDeploying Status = "deploying"
 	StatusRunning   Status = "running"
 	StatusFailed    Status = "failed"
+	StatusStopped   Status = "stopped"
 )
 
 type Deployment struct {
@@ -22,7 +23,7 @@ type Deployment struct {
 	Name          string    `json:"name"`
 	Status        Status    `json:"status" gorm:"default:pending"`
 	GithubURL     string    `gorm:"not null" json:"github_url"`
-	ImageTag      string    `json:"image_tag"`
+	ImageName     string    `json:"image_tag"`
 	ContainerName string    `json:"container_name"`
 	ContainerPort int       `json:"container_port"`
 	CaddyRoute    string    `json:"caddy_route"`
