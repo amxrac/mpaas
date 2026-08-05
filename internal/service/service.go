@@ -332,7 +332,7 @@ func (s *Service) emitLog(ctx context.Context, message, deploymentID string) {
 	})
 }
 
-func parseGitHubRepoURL(input string) (u *url.URL, ownerName, repoName string, err error) {
+func ParseGitHubRepoURL(input string) (u *url.URL, ownerName, repoName string, err error) {
 	if !strings.Contains(input, "://") {
 		input = "https://" + input
 	}
@@ -348,7 +348,7 @@ func parseGitHubRepoURL(input string) (u *url.URL, ownerName, repoName string, e
 }
 
 func cloneRepo(ctx context.Context, repoURL string, output io.Writer) (dir, ownerName, repoName string, err error) {
-	u, ownerName, repoName, err := parseGitHubRepoURL(repoURL)
+	u, ownerName, repoName, err := ParseGitHubRepoURL(repoURL)
 	if err != nil {
 		return "", "", "", err
 	}
