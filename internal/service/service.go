@@ -167,8 +167,8 @@ func (s *Service) run(ctx context.Context, deployment *models.Deployment, handle
 	s.emitLog(ctx, "building image with railpack", deployment.ID)
 	buildErr := buildContainerImage(ctx, dir, imageName, lw)
 	if buildErr != nil {
-		s.failDeployment(ctx, deployment, fmt.Sprintf("build failed: %v", buildErr))
 		lw.Flush()
+		s.failDeployment(ctx, deployment, fmt.Sprintf("build failed: %v", buildErr))
 		return
 	}
 	lw.Flush()
@@ -239,7 +239,7 @@ func (s *Service) run(ctx context.Context, deployment *models.Deployment, handle
 	success := false
 	defer func() {
 		if !success {
-			_ = s.dockerClient.Remove(context.Background(), containerID)
+			_ = s.dockerClient.StopThenRemove(context.Background(), containerID)
 		}
 	}()
 

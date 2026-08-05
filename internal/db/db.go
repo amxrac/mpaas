@@ -42,6 +42,14 @@ func (db *DB) Migrate(models ...any) error {
 	return nil
 }
 
+func (db *DB) Ping() error {
+	sqlDB, err := db.conn.DB()
+	if err != nil {
+		return err
+	}
+	return sqlDB.Ping()
+}
+
 func (db *DB) InsertDeployment(ctx context.Context, dep *models.Deployment) error {
 	err := db.conn.WithContext(ctx).Create(dep).Error
 	if err != nil {
