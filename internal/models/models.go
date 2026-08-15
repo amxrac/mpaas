@@ -23,7 +23,7 @@ type Deployment struct {
 	Name          string    `json:"name"`
 	Status        Status    `json:"status" gorm:"default:pending"`
 	GithubURL     string    `gorm:"not null" json:"github_url"`
-	ImageName     string    `json:"image_tag"`
+	ImageName     string    `json:"image_name"`
 	ContainerName string    `json:"container_name"`
 	ContainerPort int       `json:"container_port"`
 	CaddyRoute    string    `json:"caddy_route"`

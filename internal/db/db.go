@@ -15,10 +15,16 @@ type DB struct {
 }
 
 func ConnectDB(dsn string) (*DB, error) {
-	conn, err := gorm.Open(gormlite.Open(dsn+"?_pragma=foreign_keys(1)&_pragma=journal_mode(WAL)"), &gorm.Config{})
+	dsn = "file:" + dsn + ".db" +
+		"?_pragma=busy_timeout(10000)" +
+		"&_pragma=foreign_keys(1)" +
+		"&_pragma=journal_mode(WAL)"
+
+	conn, err := gorm.Open(gormlite.Open(dsn), &gorm.Config{})
 	if err != nil {
 		return nil, fmt.Errorf("connect db: %w", err)
 	}
+
 	return NewDB(conn), nil
 }
 
@@ -83,7 +89,7 @@ func (db *DB) ListDeployments(ctx context.Context) ([]models.Deployment, error) 
 func (db *DB) UpdateDeployment(ctx context.Context, dep *models.Deployment) error {
 	err := db.conn.WithContext(ctx).Model(&models.Deployment{}).Where("id = ?", dep.ID).Updates(map[string]any{
 		"status":         dep.Status,
-		"image_tag":      dep.ImageName,
+		"image_name":     dep.ImageName,
 		"container_name": dep.ContainerName,
 		"container_port": dep.ContainerPort,
 		"caddy_route":    dep.CaddyRoute,
