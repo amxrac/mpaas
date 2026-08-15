@@ -117,14 +117,14 @@ func (db *DB) InsertLog(ctx context.Context, message, deploymentID string) (*mod
 	return &entry, nil
 }
 
-func (db *DB) GetLogsAfterID(ctx context.Context, deploymentID string, lastID int64) ([]models.LogEntry, error) {
+func (db *DB) GetLogsAfterID(ctx context.Context, deploymentID string, lastID string) ([]models.LogEntry, error) {
 	var entries []models.LogEntry
 	err := db.conn.WithContext(ctx).
 		Where("deployment_id = ? AND id > ?", deploymentID, lastID).
 		Order("id ASC").
 		Find(&entries).Error
 	if err != nil {
-		return nil, fmt.Errorf("get logs for deployment %q after id %d: %w", deploymentID, lastID, err)
+		return nil, fmt.Errorf("get logs for deployment %q after id %s: %w", deploymentID, lastID, err)
 	}
 	return entries, nil
 
