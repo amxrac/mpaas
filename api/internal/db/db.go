@@ -4,8 +4,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 
-	"github.com/amxrac/mpaas/internal/models"
+	"github.com/amxrac/mpaas/api/internal/models"
 	"github.com/ncruces/go-sqlite3/gormlite"
 	"gorm.io/gorm"
 )
@@ -15,7 +16,11 @@ type DB struct {
 }
 
 func ConnectDB(dsn string) (*DB, error) {
-	dsn = "file:" + dsn + ".db" +
+	if !strings.HasSuffix(dsn, ".db") {
+		dsn = dsn + ".db"
+	}
+
+	dsn = "file:" + dsn +
 		"?_pragma=busy_timeout(10000)" +
 		"&_pragma=foreign_keys(1)" +
 		"&_pragma=journal_mode(WAL)"

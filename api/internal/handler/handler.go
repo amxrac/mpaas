@@ -1,4 +1,4 @@
-package api
+package handler
 
 import (
 	"encoding/json"
@@ -7,9 +7,9 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/amxrac/mpaas/internal/db"
-	"github.com/amxrac/mpaas/internal/service"
-	"github.com/amxrac/mpaas/internal/stream"
+	"github.com/amxrac/mpaas/api/internal/db"
+	"github.com/amxrac/mpaas/api/internal/service"
+	"github.com/amxrac/mpaas/api/internal/stream"
 	"gorm.io/gorm"
 )
 

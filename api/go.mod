@@ -1,4 +1,4 @@
-module github.com/amxrac/mpaas
+module github.com/amxrac/mpaas/api
 
 go 1.26.1
 

@@ -1,10 +1,10 @@
-package api
+package handler
 
 import (
 	"encoding/json"
 	"net/http"
 
-	"github.com/amxrac/mpaas/internal/db"
+	"github.com/amxrac/mpaas/api/internal/db"
 )
 
 type DeploymentHandler interface {

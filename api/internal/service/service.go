@@ -15,11 +15,11 @@ import (
 	"sync"
 	"time"
 
-	"github.com/amxrac/mpaas/internal/caddy"
-	"github.com/amxrac/mpaas/internal/db"
-	"github.com/amxrac/mpaas/internal/docker"
-	"github.com/amxrac/mpaas/internal/models"
-	"github.com/amxrac/mpaas/internal/stream"
+	"github.com/amxrac/mpaas/api/internal/caddy"
+	"github.com/amxrac/mpaas/api/internal/db"
+	"github.com/amxrac/mpaas/api/internal/docker"
+	"github.com/amxrac/mpaas/api/internal/models"
+	"github.com/amxrac/mpaas/api/internal/stream"
 )
 
 var errInvalidGitHubRepoURL = errors.New("invalid github repo url")
