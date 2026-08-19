@@ -84,6 +84,7 @@ func (c *Client) EnsureCaddy(ctx context.Context, caddyfilePath, networkName str
 			_ = c.Remove(ctx, caddyContainerName)
 			return fmt.Errorf("start existing caddy container: %w", err)
 		}
+		return nil
 	}
 
 	if !cerrdefs.IsNotFound(err) {

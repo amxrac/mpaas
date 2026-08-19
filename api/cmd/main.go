@@ -14,9 +14,11 @@ import (
 	"github.com/amxrac/mpaas/api/internal/models"
 	"github.com/amxrac/mpaas/api/internal/service"
 	"github.com/amxrac/mpaas/api/internal/stream"
+	"github.com/joho/godotenv"
 )
 
 func main() {
+	godotenv.Load()
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
@@ -52,7 +54,7 @@ func main() {
 		log.Printf("server running on  %s", port)
 		err := h.Listen(port)
 		if err != nil {
-			log.Fatalf("connect docker: %v", err)
+			log.Fatalf("server error: %v", err)
 		}
 	}()
 	quit := make(chan os.Signal, 1)

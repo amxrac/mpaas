@@ -6,6 +6,7 @@ services:
     volumes:
       - sqlite_data:/data
       - /var/run/docker.sock:/var/run/docker.sock
+      - ./api/config/Caddyfile:/config/Caddyfile:ro
     networks:
       - mpaas
     depends_on:
@@ -15,22 +16,22 @@ services:
           PORT: ${PORT:-8000}
           DB_PATH: /data/mpaas.db
           CADDY_ADMIN_URL: http://caddy:2019
-          # BUILDKIT_HOST: tcp://buildkitd:1234
-
+          BUILDKIT_HOST: tcp://buildkitd:1234
     ports:
       - "8000:8000"
+    dns:
+      - 1.1.1.1
+      - 8.8.8.8
 
-  # buildkitd:
-  #   image: moby/buildkit:latest
-  #   privileged: true
-  #   command: --addr tcp://0.0.0.0:1234
-  #   volumes:
-  #     - buildkit_cache:/var/lib/buildkit
-  #   dns:
-  #     - 1.1.1.1
-  #     - 8.8.8.8
-  #   networks:
-  #     - mpaas
+  buildkitd:
+    image: moby/buildkit:latest
+    privileged: true
+    command: --addr tcp://0.0.0.0:1234 --config /etc/buildkitd.toml
+    volumes:
+      - buildkit_cache:/var/lib/buildkit
+      - buildkitd.toml:/etc/buildkitd.toml:ro
+    networks:
+      - mpaas
 
 
   caddy:
@@ -52,22 +53,13 @@ services:
     networks:
       - mpaas
 
-  # client:
-  #   build:
-  #     context: ./client
-  #   depends_on:
-  #     server:
-  #       condition: service_started
-  #   ports:
-  #     - "3000:80"
-  #   networks:
-  #     - mpaas
 
 volumes:
   sqlite_data:
   caddy_data:
   caddy_config:
   buildkit_cache:
+  buildkitd.toml:
 
 networks:
   mpaas:
