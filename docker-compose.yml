@@ -6,14 +6,13 @@ services:
     volumes:
       - sqlite_data:/data
       - /var/run/docker.sock:/var/run/docker.sock
-      - ./api/config/Caddyfile:/config/Caddyfile:ro
     networks:
       - mpaas
     depends_on:
       caddy:
         condition: service_started
     environment:
-          PORT: ${PORT:-8000}
+          PORT: ":${PORT:-8000}"
           DB_PATH: /data/mpaas.db
           CADDY_ADMIN_URL: http://caddy:2019
           BUILDKIT_HOST: tcp://buildkitd:1234
@@ -23,18 +22,19 @@ services:
       - 1.1.1.1
       - 8.8.8.8
 
-  buildkitd:
-    image: moby/buildkit:latest
-    privileged: true
-    command: --addr tcp://0.0.0.0:1234 --config /etc/buildkitd.toml
-    volumes:
-      - buildkit_cache:/var/lib/buildkit
-      - buildkitd.toml:/etc/buildkitd.toml:ro
-    networks:
-      - mpaas
+  # buildkitd:
+  #   image: moby/buildkit:latest
+  #   privileged: true
+  #   command: --addr tcp://0.0.0.0:1234 --config /etc/buildkitd.toml
+  #   volumes:
+  #     - buildkit_cache:/var/lib/buildkit
+  #     - ./api/buildkitd.toml:/etc/buildkitd.toml:ro
+  #   networks:
+  #     - mpaas
 
 
   caddy:
+    container_name: caddy
     image: caddy:latest
     command:
       [
@@ -45,6 +45,11 @@ services:
         "--adapter",
         "caddyfile",
       ]
+    healthcheck:
+        test: ["CMD", "curl", "-f", "http://localhost:2019/config/"]
+        interval: 5s
+        timeout: 3s
+        retries: 10
     ports:
       - "80:80"
       - "2019:2019"
@@ -59,7 +64,6 @@ volumes:
   caddy_data:
   caddy_config:
   buildkit_cache:
-  buildkitd.toml:
 
 networks:
   mpaas:

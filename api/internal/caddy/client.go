@@ -129,20 +129,3 @@ func (c *Client) RemoveRoute(ctx context.Context, deploymentID string) error {
 func (c *Client) constructURL(path string) (string, error) {
 	return url.JoinPath(c.adminURL, path)
 }
-
-func (c *Client) EnsureCaddyReady(ctx context.Context, timeout time.Duration) error {
-	var err error
-	deadline := time.Now().Add(timeout)
-	for time.Now().Before(deadline) {
-		err = c.RemoveRoute(ctx, "_sample_id_")
-		if err == nil {
-			return nil
-		}
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		case <-time.After(250 * time.Millisecond):
-		}
-	}
-	return fmt.Errorf("caddy api not ready after %s: %w", timeout, err)
-}

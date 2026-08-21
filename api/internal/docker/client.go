@@ -4,12 +4,9 @@ import (
 	"context"
 	"fmt"
 	"io"
-	"net/netip"
 	"os"
 	"os/exec"
-	"path/filepath"
 	"strings"
-	"time"
 
 	cerrdefs "github.com/containerd/errdefs"
 	"github.com/moby/moby/api/types/container"
@@ -70,89 +67,6 @@ func (c *Client) EnsureNetwork(ctx context.Context, name string) error {
 		return nil
 	}
 	return fmt.Errorf("create network %q: %w", name, err)
-}
-
-func (c *Client) EnsureCaddy(ctx context.Context, caddyfilePath, networkName string) error {
-	info, err := c.cli.ContainerInspect(ctx, caddyContainerName, client.ContainerInspectOptions{})
-
-	if err == nil {
-		if info.Container.State.Running {
-			return nil
-		}
-		_, err = c.cli.ContainerStart(ctx, caddyContainerName, client.ContainerStartOptions{})
-		if err != nil {
-			_ = c.Remove(ctx, caddyContainerName)
-			return fmt.Errorf("start existing caddy container: %w", err)
-		}
-		return nil
-	}
-
-	if !cerrdefs.IsNotFound(err) {
-		return fmt.Errorf("inspect caddy container: %w", err)
-	}
-
-	absCaddyfile, err := filepath.Abs(caddyfilePath)
-	if err != nil {
-		return fmt.Errorf("resolve caddyfile path: %w", err)
-	}
-
-	fileInfo, err := os.Stat(absCaddyfile)
-	if err != nil {
-		return fmt.Errorf("caddyfile not found at %s: %w", absCaddyfile, err)
-	}
-	if fileInfo.IsDir() {
-		return fmt.Errorf("expected a file at %s, found a directory", absCaddyfile)
-	}
-
-	r, err := c.cli.ImagePull(ctx, caddyImage, client.ImagePullOptions{})
-	if err != nil {
-		return fmt.Errorf("pull caddy image %q: %w", caddyImage, err)
-	}
-	defer r.Close()
-
-	_, err = io.Copy(io.Discard, r)
-	if err != nil {
-		return fmt.Errorf("pull caddy image %q: %w", caddyImage, err)
-	}
-
-	labels := labelMap()
-
-	cfg := &container.Config{
-		Image:  caddyImage,
-		Labels: labels,
-	}
-
-	hostCfg := &container.HostConfig{
-		Binds: []string{absCaddyfile + ":/etc/caddy/Caddyfile:ro"},
-		PortBindings: network.PortMap{
-			network.MustParsePort("80/tcp"):   {{HostIP: netip.MustParseAddr("0.0.0.0"), HostPort: "80"}},
-			network.MustParsePort("443/tcp"):  {{HostIP: netip.MustParseAddr("0.0.0.0"), HostPort: "443"}},
-			network.MustParsePort("2019/tcp"): {{HostIP: netip.MustParseAddr("127.0.0.1"), HostPort: "2019"}},
-		},
-	}
-
-	netCfg := &network.NetworkingConfig{
-		EndpointsConfig: map[string]*network.EndpointSettings{networkName: {}},
-	}
-
-	created, err := c.cli.ContainerCreate(ctx, client.ContainerCreateOptions{
-		Config:           cfg,
-		HostConfig:       hostCfg,
-		NetworkingConfig: netCfg,
-		Name:             caddyContainerName,
-	})
-
-	if err != nil {
-		return fmt.Errorf("create caddy container: %w", err)
-	}
-
-	_, err = c.cli.ContainerStart(ctx, created.ID, client.ContainerStartOptions{})
-	if err != nil {
-		_ = c.Remove(ctx, created.ID)
-		return fmt.Errorf("start caddy container: %w", err)
-	}
-
-	return nil
 }
 
 func (c *Client) RunContainer(ctx context.Context, opts RunContainerOpts) (containerID string, resolvedPort int, err error) {
@@ -245,40 +159,6 @@ func (c *Client) Logs(ctx context.Context, containerID string, follow bool) (io.
 		Follow:     true,
 		Timestamps: true,
 	})
-}
-
-func (c *Client) CaddyhttpHealthCheck(ctx context.Context, targetHost string, targetPort int) error {
-	resp, err := c.cli.ExecCreate(ctx, caddyContainerName, client.ExecCreateOptions{
-		Cmd: []string{"wget", "-q", "-T", "2", "-O", "/dev/null",
-			fmt.Sprintf("http://%s:%d/", targetHost, targetPort)},
-	})
-	if err != nil {
-		return fmt.Errorf("create healthcheck exec: %w", err)
-	}
-
-	_, err = c.cli.ExecStart(ctx, resp.ID, client.ExecStartOptions{})
-	if err != nil {
-		return fmt.Errorf("start healthcheck exec: %w", err)
-	}
-
-	for {
-		inspect, err := c.cli.ExecInspect(ctx, resp.ID, client.ExecInspectOptions{})
-		if err != nil {
-			return fmt.Errorf("inspect healthcheck exec: %w", err)
-		}
-		if !inspect.Running {
-			if inspect.ExitCode != 0 {
-				return fmt.Errorf("healthcheck failed: wget exited %d", inspect.ExitCode)
-			}
-			return nil
-		}
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		case <-time.After(100 * time.Millisecond):
-		}
-	}
-
 }
 
 func (c *Client) getHostPort(ctx context.Context, containerID string, port network.Port) (string, error) {

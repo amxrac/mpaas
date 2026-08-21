@@ -187,24 +187,6 @@ func (s *Service) run(ctx context.Context, deployment *models.Deployment, handle
 	}
 	lw.Flush()
 
-	ensureCaddyErr := s.dockerClient.EnsureCaddy(ctx, "./config/Caddyfile", networkName)
-	if ensureCaddyErr != nil {
-		lw.Flush()
-		s.failDeployment(ctx, deployment, fmt.Sprintf("caddy error: %v", ensureCaddyErr))
-		return
-	}
-	lw.Flush()
-
-	caddyErr := s.caddyClient.EnsureCaddyReady(ctx, 90*time.Second)
-	if caddyErr != nil {
-		lw.Flush()
-		s.failDeployment(ctx, deployment, fmt.Sprintf("caddy error: %v", caddyErr))
-		return
-	}
-	lw.Flush()
-
-	s.emitLog(ctx, "caddy container is up", deployment.ID)
-
 	validatePortErr := validateContainerPort(deployment.ContainerPort)
 	if validatePortErr != nil {
 		lw.Flush()
@@ -242,17 +224,6 @@ func (s *Service) run(ctx context.Context, deployment *models.Deployment, handle
 			_ = s.dockerClient.StopThenRemove(context.Background(), containerID)
 		}
 	}()
-
-	healthCtx, dCancel := context.WithTimeout(ctx, 30*time.Second)
-	defer dCancel()
-
-	caddyCheckErr := s.dockerClient.CaddyhttpHealthCheck(healthCtx, deployment.ContainerName, deployment.ContainerPort)
-	if caddyCheckErr != nil {
-		lw.Flush()
-		s.failDeployment(ctx, deployment, fmt.Sprintf("caddy http error: %v", caddyCheckErr))
-		return
-	}
-	lw.Flush()
 
 	s.emitLog(ctx, "routing via caddy", deployment.ID)
 

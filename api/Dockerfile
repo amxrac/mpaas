@@ -20,12 +20,8 @@ RUN apt-get update \
         git \
     && rm -rf /var/lib/apt/lists/*
 
-# Install Docker Buildx CLI plugin.
-# COPY --from=docker/buildx-bin /buildx \
-#     /usr/libexec/docker/cli-plugins/docker-buildx
+# Install Docker for Buildx CLI plugin.
 RUN curl -fsSL https://get.docker.com | sh
-
-# RUN docker buildx version
 
 # Install Railpack.
 RUN curl -sSL https://railpack.com/install.sh | RAILPACK_VERSION=0.36.4 sh && which railpack
