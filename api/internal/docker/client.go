@@ -18,8 +18,21 @@ const (
 	ManagedLabel = "managed-by=mpaas"
 )
 
+type dockerClientInterface interface {
+	ContainerCreate(ctx context.Context, options client.ContainerCreateOptions) (client.ContainerCreateResult, error)
+	ContainerStart(ctx context.Context, containerID string, options client.ContainerStartOptions) (client.ContainerStartResult, error)
+	ContainerStop(ctx context.Context, containerID string, options client.ContainerStopOptions) (client.ContainerStopResult, error)
+	ContainerRemove(ctx context.Context, containerID string, options client.ContainerRemoveOptions) (client.ContainerRemoveResult, error)
+	ContainerList(ctx context.Context, options client.ContainerListOptions) (client.ContainerListResult, error)
+	ContainerLogs(ctx context.Context, containerID string, options client.ContainerLogsOptions) (client.ContainerLogsResult, error)
+	ContainerInspect(ctx context.Context, containerID string, options client.ContainerInspectOptions) (client.ContainerInspectResult, error)
+	NetworkCreate(ctx context.Context, name string, options client.NetworkCreateOptions) (client.NetworkCreateResult, error)
+	Ping(ctx context.Context, options client.PingOptions) (client.PingResult, error)
+	Close() error
+}
+
 type Client struct {
-	cli *client.Client
+	cli dockerClientInterface
 }
 
 type RunContainerOpts struct {
@@ -154,7 +167,7 @@ func (c *Client) Logs(ctx context.Context, containerID string, follow bool) (io.
 	return c.cli.ContainerLogs(ctx, containerID, client.ContainerLogsOptions{
 		ShowStdout: true,
 		ShowStderr: true,
-		Follow:     true,
+		Follow:     follow,
 		Timestamps: true,
 	})
 }
