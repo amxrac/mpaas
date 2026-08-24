@@ -3,6 +3,7 @@ package db
 import (
 	"context"
 	"errors"
+	"fmt"
 	"testing"
 	"time"
 
@@ -324,5 +325,29 @@ func TestGetLogsAfterIDIsolatedByDeployment(t *testing.T) {
 
 	if got[0].Message != "dep1-second" {
 		t.Errorf("Message = %q, want %q", got[0].Message, "dep1-second")
+	}
+}
+
+func TestListDeploymentsLimit(t *testing.T) {
+	db := newTestDB(t)
+	ctx := context.Background()
+
+	for i := range 101 {
+		dep := testDeployment()
+		dep.GithubURL = fmt.Sprintf("https://github.com/test/repo-%d", i)
+
+		err := db.InsertDeployment(ctx, dep)
+		if err != nil {
+			t.Fatalf("InsertDeployment(%d) error = %v", i, err)
+		}
+	}
+
+	got, err := db.ListDeployments(ctx)
+	if err != nil {
+		t.Fatalf("ListDeployments() error = %v", err)
+	}
+
+	if len(got) != 100 {
+		t.Fatalf("len(deployments) = %d, want 100", len(got))
 	}
 }
