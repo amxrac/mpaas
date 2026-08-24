@@ -15,9 +15,7 @@ import (
 )
 
 const (
-	caddyContainerName = "caddy"
-	caddyImage         = "caddy:2.11.4-alpine"
-	ManagedLabel       = "managed-by=mpaas"
+	ManagedLabel = "managed-by=mpaas"
 )
 
 type Client struct {
