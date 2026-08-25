@@ -190,7 +190,7 @@ func (s *Service) run(ctx context.Context, deployment *models.Deployment, handle
 	validatePortErr := validateContainerPort(deployment.ContainerPort)
 	if validatePortErr != nil {
 		lw.Flush()
-		s.failDeployment(ctx, deployment, fmt.Sprintf("port error: %v", validatePortErr))
+		s.failDeployment(ctx, deployment, fmt.Sprintf("container port error: %v", validatePortErr))
 		return
 	}
 	lw.Flush()
