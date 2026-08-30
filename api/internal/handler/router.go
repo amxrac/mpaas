@@ -30,13 +30,13 @@ func NewHandler(deployment DeploymentHandler, database *db.DB) *Handler {
 
 func Setup(h *Handler, db *db.DB) http.Handler {
 	mux := http.NewServeMux()
-	mux.HandleFunc("GET /health", health(db))
-	mux.HandleFunc("POST /deployments", h.Deployment.Create)
-	mux.HandleFunc("GET /deployments", h.Deployment.List)
-	mux.HandleFunc("GET /deployments/{id}", h.Deployment.Get)
-	mux.HandleFunc("POST /deployments/{id}/stop", h.Deployment.Stop)
-	mux.HandleFunc("DELETE /deployments/{id}/delete", h.Deployment.Delete)
-	mux.HandleFunc("GET /deployments/{id}/logs/stream", h.Deployment.StreamLogs)
+	mux.HandleFunc("GET /api/health", health(db))
+	mux.HandleFunc("POST /api/deployments", h.Deployment.Create)
+	mux.HandleFunc("GET /api/deployments", h.Deployment.List)
+	mux.HandleFunc("GET /api/deployments/{id}", h.Deployment.Get)
+	mux.HandleFunc("POST /api/deployments/{id}/stop", h.Deployment.Stop)
+	mux.HandleFunc("DELETE /api/deployments/{id}/delete", h.Deployment.Delete)
+	mux.HandleFunc("GET /api/deployments/{id}/logs/stream", h.Deployment.StreamLogs)
 	return enableCORS(mux)
 }
 
