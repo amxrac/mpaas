@@ -109,6 +109,22 @@ func (h *deploymentHandler) Stop(w http.ResponseWriter, r *http.Request) {
 	ok(w, "deployment stopped successfully", nil)
 }
 
+func (h *deploymentHandler) Delete(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	err := h.service.Delete(r.Context(), id)
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			notFound(w, "deployment not found", nil)
+			return
+		}
+
+		internalError(w, "failed to delete deployment", nil)
+		return
+	}
+
+	ok(w, "deployment deleted successfully", nil)
+}
+
 func (h *deploymentHandler) StreamLogs(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 

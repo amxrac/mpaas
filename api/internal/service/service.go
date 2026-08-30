@@ -116,13 +116,21 @@ func (s *Service) Stop(ctx context.Context, deploymentID string) error {
 		return fmt.Errorf("update deployment status: %w", updateErr)
 	}
 
-	// deleteErr := s.db.DeleteDeployment(ctx, deployment.ID)
-	// if deleteErr != nil {
-	// 	return fmt.Errorf("delete deployment record: %w", deleteErr)
-	// }
-
 	s.emitLog(ctx, "deployment stopped", deployment.ID)
 
+	return nil
+}
+
+func (s *Service) Delete(ctx context.Context, deploymentID string) error {
+	err := s.Stop(ctx, deploymentID)
+	if err != nil {
+		return fmt.Errorf("stop deployment before delete: %w", err)
+	}
+
+	err = s.db.DeleteDeployment(ctx, deploymentID)
+	if err != nil {
+		return fmt.Errorf("delete deployment record: %w", err)
+	}
 	return nil
 }
 
