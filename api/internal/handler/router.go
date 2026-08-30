@@ -12,6 +12,7 @@ type DeploymentHandler interface {
 	List(http.ResponseWriter, *http.Request)
 	Get(http.ResponseWriter, *http.Request)
 	Stop(http.ResponseWriter, *http.Request)
+	Delete(http.ResponseWriter, *http.Request)
 	StreamLogs(http.ResponseWriter, *http.Request)
 }
 
@@ -33,7 +34,8 @@ func Setup(h *Handler, db *db.DB) http.Handler {
 	mux.HandleFunc("POST /deployments", h.Deployment.Create)
 	mux.HandleFunc("GET /deployments", h.Deployment.List)
 	mux.HandleFunc("GET /deployments/{id}", h.Deployment.Get)
-	mux.HandleFunc("DELETE /deployments/{id}", h.Deployment.Stop)
+	mux.HandleFunc("POST /deployments/{id}", h.Deployment.Stop)
+	mux.HandleFunc("DELETE /deployments/{id}", h.Deployment.Delete)
 	mux.HandleFunc("GET /deployments/{id}/logs/stream", h.Deployment.StreamLogs)
 	return enableCORS(mux)
 }
