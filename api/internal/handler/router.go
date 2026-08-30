@@ -34,7 +34,7 @@ func Setup(h *Handler, db *db.DB) http.Handler {
 	mux.HandleFunc("POST /deployments", h.Deployment.Create)
 	mux.HandleFunc("GET /deployments", h.Deployment.List)
 	mux.HandleFunc("GET /deployments/{id}", h.Deployment.Get)
-	mux.HandleFunc("POST /deployments/{id}", h.Deployment.Stop)
+	mux.HandleFunc("POST /deployments/{id}/stop", h.Deployment.Stop)
 	mux.HandleFunc("DELETE /deployments/{id}/delete", h.Deployment.Delete)
 	mux.HandleFunc("GET /deployments/{id}/logs/stream", h.Deployment.StreamLogs)
 	return enableCORS(mux)
