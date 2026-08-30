@@ -42,7 +42,7 @@ export async function getDeployment(id: string) {
 }
 
 export async function listDeployments() {
-  const res: Response = await api("/deployments}", {
+  const res: Response = await api("/deployments", {
       method: "GET",
     });
 
@@ -54,12 +54,24 @@ export async function listDeployments() {
 }
 
 export async function deleteDeployment(id: string) {
-  const res = await api(`/deployments/${id}`, {
+  const res = await api(`/deployments/${id}/delete`, {
     method: 'DELETE'
   });
 
   if (!res.ok) {
     throw new Error('Failed to delete deployment');
+  }
+
+  return res.json();
+}
+
+export async function stopDeployment(id: string) {
+  const res = await api(`/deployments/${id}/stop`, {
+    method: 'POST'
+  });
+
+  if (!res.ok) {
+    throw new Error('Failed to stop deployment');
   }
 
   return res.json();
