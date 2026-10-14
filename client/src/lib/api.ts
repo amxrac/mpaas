@@ -77,6 +77,6 @@ export async function stopDeployment(id: string) {
   return res.json();
 }
 
-export async function streamDeploymentLogs(id: string) {
+export function streamDeploymentLogs(id: string) {
   return new EventSource(`/api/deployments/${id}/logs/stream`);
 }

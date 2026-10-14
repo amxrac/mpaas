@@ -26,5 +26,9 @@
 		"typescript": "^6.0.3",
 		"typescript-eslint": "^8.60.1",
 		"vite": "^8.0.16"
+	},
+	"dependencies": {
+		"@tailwindcss/vite": "^4.3.3",
+		"tailwindcss": "^4.3.3"
 	}
 }
