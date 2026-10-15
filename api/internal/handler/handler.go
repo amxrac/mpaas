@@ -27,6 +27,7 @@ type apiResponse struct {
 
 type createDeploymentRequest struct {
 	GithubURL string `json:"github_url"`
+	Port      int    `json:"port,omitempty"`
 }
 
 func NewDeploymentHandler(
@@ -53,12 +54,16 @@ func (h *deploymentHandler) Create(w http.ResponseWriter, r *http.Request) {
 	githubURL := strings.TrimSpace(req.GithubURL)
 	_, _, _, err = service.ParseGitHubRepoURL(githubURL)
 	if err != nil {
-		badRequest(w, "invalid request body", nil)
+		badRequest(w, "invalid github url", nil)
 		return
 	}
 
-	deployment, err := h.service.Deploy(r.Context(), githubURL)
+	deployment, err := h.service.Deploy(r.Context(), githubURL, req.Port)
 	if err != nil {
+		if errors.Is(err, service.ErrInvalidPort) {
+			badRequest(w, err.Error(), nil)
+			return
+		}
 		internalError(w, "failed to create deployment", nil)
 		return
 	}

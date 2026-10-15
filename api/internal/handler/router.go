@@ -1,10 +1,13 @@
 package handler
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
+	"time"
 
 	"github.com/amxrac/mpaas/api/internal/db"
+	"github.com/amxrac/mpaas/api/internal/docker"
 )
 
 type DeploymentHandler interface {
@@ -17,47 +20,59 @@ type DeploymentHandler interface {
 }
 
 type Handler struct {
-	Deployment DeploymentHandler
-	db         *db.DB
+	Deployment   DeploymentHandler
+	database     *db.DB
+	dockerClient *docker.Client
 }
 
-func NewHandler(deployment DeploymentHandler, database *db.DB) *Handler {
+func NewHandler(deployment DeploymentHandler, database *db.DB, dockerClient *docker.Client) *Handler {
 	return &Handler{
-		Deployment: deployment,
-		db:         database,
+		Deployment:   deployment,
+		database:     database,
+		dockerClient: dockerClient,
 	}
 }
 
-func Setup(h *Handler, db *db.DB) http.Handler {
+func Setup(h *Handler) http.Handler {
 	mux := http.NewServeMux()
-	mux.HandleFunc("GET /api/health", health(db))
+	mux.HandleFunc("GET /api/health", health(h.database, h.dockerClient))
 	mux.HandleFunc("POST /api/deployments", h.Deployment.Create)
 	mux.HandleFunc("GET /api/deployments", h.Deployment.List)
 	mux.HandleFunc("GET /api/deployments/{id}", h.Deployment.Get)
 	mux.HandleFunc("POST /api/deployments/{id}/stop", h.Deployment.Stop)
-	mux.HandleFunc("DELETE /api/deployments/{id}/delete", h.Deployment.Delete)
+	mux.HandleFunc("DELETE /api/deployments/{id}", h.Deployment.Delete)
 	mux.HandleFunc("GET /api/deployments/{id}/logs/stream", h.Deployment.StreamLogs)
 	return enableCORS(mux)
 }
 
-func health(db *db.DB) http.HandlerFunc {
+func health(database *db.DB, dockerClient *docker.Client) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-
-		if err := db.Ping(); err != nil {
-			w.WriteHeader(http.StatusInternalServerError)
-			_ = json.NewEncoder(w).Encode(map[string]string{
-				"status":  "error",
-				"message": "database unavailable",
-			})
+		err := database.Ping()
+		if err != nil {
+			writeHealth(w, http.StatusServiceUnavailable, "error", "database unavailable")
 			return
 		}
 
-		w.WriteHeader(http.StatusOK)
-		_ = json.NewEncoder(w).Encode(map[string]string{
-			"status": "ready",
-		})
+		ctx, cancel := context.WithTimeout(r.Context(), 2*time.Second)
+		defer cancel()
+		err = dockerClient.Ping(ctx)
+		if err != nil {
+			writeHealth(w, http.StatusServiceUnavailable, "error", "docker unavailable")
+			return
+		}
+
+		writeHealth(w, http.StatusOK, "ready", "")
 	}
+}
+
+func writeHealth(w http.ResponseWriter, status int, state, message string) {
+	body := map[string]string{"status": state}
+	if message != "" {
+		body["message"] = message
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(status)
+	_ = json.NewEncoder(w).Encode(body)
 }
 
 func enableCORS(next http.Handler) http.HandlerFunc {
@@ -73,6 +88,11 @@ func enableCORS(next http.Handler) http.HandlerFunc {
 	}
 }
 
-func (h *Handler) Listen(addr string) error {
-	return http.ListenAndServe(addr, Setup(h, h.db))
+func (h *Handler) NewServer(addr string) *http.Server {
+	return &http.Server{
+		Addr:              addr,
+		Handler:           Setup(h),
+		ReadHeaderTimeout: 10 * time.Second,
+		IdleTimeout:       120 * time.Second,
+	}
 }

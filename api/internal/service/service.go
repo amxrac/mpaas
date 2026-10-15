@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net/http"
 	"net/url"
 	"os"
 	"os/exec"
@@ -23,6 +24,7 @@ import (
 )
 
 var errInvalidGitHubRepoURL = errors.New("invalid github repo url")
+var ErrInvalidPort = errors.New("invalid port")
 var validRepoName = regexp.MustCompile(`^[A-Za-z0-9_.-]+$`)
 
 type runHandle struct {
@@ -57,11 +59,17 @@ func NewService(
 
 // Deploy creates a new deployment record,
 // sets up a cancellable background context,
-// and starts run on a single goroutine.
-func (s *Service) Deploy(ctx context.Context, githubURL string) (*models.Deployment, error) {
+// and starts run() on a single goroutine.
+func (s *Service) Deploy(ctx context.Context, githubURL string, port int) (*models.Deployment, error) {
+	portErr := validateContainerPort(port)
+	if portErr != nil {
+		return nil, portErr
+	}
+
 	deployment := &models.Deployment{
-		GithubURL: githubURL,
-		Status:    models.StatusPending,
+		GithubURL:     githubURL,
+		Status:        models.StatusPending,
+		ContainerPort: port,
 	}
 
 	err := s.db.InsertDeployment(ctx, deployment)
@@ -195,14 +203,6 @@ func (s *Service) run(ctx context.Context, deployment *models.Deployment, handle
 	}
 	lw.Flush()
 
-	validatePortErr := validateContainerPort(deployment.ContainerPort)
-	if validatePortErr != nil {
-		lw.Flush()
-		s.failDeployment(ctx, deployment, fmt.Sprintf("port error: %v", validatePortErr))
-		return
-	}
-	lw.Flush()
-
 	deployment.Status = models.StatusDeploying
 	deployingUpdateErr := s.db.UpdateDeployment(ctx, deployment)
 	if deployingUpdateErr != nil {
@@ -233,6 +233,19 @@ func (s *Service) run(ctx context.Context, deployment *models.Deployment, handle
 		}
 	}()
 
+	upstream := fmt.Sprintf("%s:%d", deployment.ContainerName, deployment.ContainerPort)
+	s.emitLog(ctx, fmt.Sprintf("waiting for app on port %d", deployment.ContainerPort), deployment.ID)
+
+	healthCtx, healthCancel := context.WithTimeout(ctx, 60*time.Second)
+	healthErr := httpHealthCheck(healthCtx, "http://"+upstream+"/")
+	healthCancel()
+	if healthErr != nil {
+		s.failDeployment(ctx, deployment, fmt.Sprintf(
+			"health check failed: %v; app must listen on $PORT (%d), or redeploy with the port it listens on",
+			healthErr, deployment.ContainerPort))
+		return
+	}
+
 	s.emitLog(ctx, "routing via caddy", deployment.ID)
 
 	host := strings.ToLower(ownerName+"-"+repoName) + ".localhost"
@@ -248,7 +261,7 @@ func (s *Service) run(ctx context.Context, deployment *models.Deployment, handle
 	addRouteErr := s.caddyClient.AddRoute(ctx, caddy.RouteOpts{
 		DeploymentID: routeID,
 		Host:         host,
-		Upstream:     fmt.Sprintf("%s:%d", deployment.ContainerName, deployment.ContainerPort),
+		Upstream:     upstream,
 	})
 	if addRouteErr != nil {
 		lw.Flush()
@@ -262,7 +275,7 @@ func (s *Service) run(ctx context.Context, deployment *models.Deployment, handle
 	runningUpdateErr := s.db.UpdateDeployment(ctx, deployment)
 	if runningUpdateErr != nil {
 		s.dockerClient.StopThenRemove(ctx, deployment.ContainerName)
-		s.caddyClient.RemoveRoute(ctx, routeID)
+		s.caddyClient.RemoveRoute(context.WithoutCancel(ctx), routeID)
 		s.failDeployment(ctx, deployment, fmt.Sprintf("running error: %v", runningUpdateErr))
 		return
 	}
@@ -399,7 +412,7 @@ func buildContainerImage(ctx context.Context, buildDir, imageName string, output
 		"docker", "buildx", "build",
 		"--build-arg", "BUILDKIT_SYNTAX=ghcr.io/railwayapp/railpack-frontend",
 		"-f", planPath,
-		"--progress=rawjson",
+		"--progress=plain",
 		"-t", imageName,
 		"--load",
 		buildDir,
@@ -420,10 +433,43 @@ func validateContainerPort(port int) error {
 	}
 
 	if port < 1 || port > 65535 {
-		return fmt.Errorf("invalid port %d: must be between 1 and 65535", port)
+		return fmt.Errorf("%w %d: must be between 1 and 65535", ErrInvalidPort, port)
 	}
 
 	return nil
+}
+
+func httpHealthCheck(ctx context.Context, url string) error {
+	client := &http.Client{Timeout: 2 * time.Second}
+	ticker := time.NewTicker(500 * time.Millisecond)
+	defer ticker.Stop()
+
+	var lastErr error
+	for {
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+		if err != nil {
+			return fmt.Errorf("health request: %w", err)
+		}
+
+		resp, err := client.Do(req)
+		if err == nil {
+			resp.Body.Close()
+			if resp.StatusCode < 500 {
+				return nil
+			}
+			lastErr = fmt.Errorf("status %d", resp.StatusCode)
+		} else {
+			lastErr = err
+		}
+
+		select {
+		case <-ctx.Done():
+			return fmt.Errorf("no healthy response from %s: %w (last error: %v)", url, ctx.Err(), lastErr)
+		case <-ticker.C:
+		}
+
+	}
+
 }
 
 // LogWriter buffers incoming bytes, splits on newlines,

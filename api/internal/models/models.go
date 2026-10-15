@@ -36,7 +36,7 @@ type LogEntry struct {
 	DeploymentID string      `gorm:"not null;index" json:"deployment_id"`
 	Message      string      `gorm:"not null" json:"message"`
 	CreatedAt    time.Time   `gorm:"autoCreateTime" json:"created_at"`
-	Deployment   *Deployment `gorm:"foreignKey:DeploymentID;constraint:OnDelete:CASCADE"`
+	Deployment   *Deployment `gorm:"foreignKey:DeploymentID;constraint:OnDelete:CASCADE" json:"-"`
 }
 
 func (d *Deployment) BeforeCreate(tx *gorm.DB) error {

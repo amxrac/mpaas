@@ -2,10 +2,13 @@ package main
 
 import (
 	"context"
+	"errors"
 	"log"
+	"net/http"
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 
 	"github.com/amxrac/mpaas/api/internal/caddy"
 	"github.com/amxrac/mpaas/api/internal/db"
@@ -14,13 +17,21 @@ import (
 	"github.com/amxrac/mpaas/api/internal/models"
 	"github.com/amxrac/mpaas/api/internal/service"
 	"github.com/amxrac/mpaas/api/internal/stream"
-	"github.com/joho/godotenv"
 )
 
 func main() {
-	godotenv.Load()
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	defer stop()
+
+	port := os.Getenv("PORT")
+	if port == "" {
+		log.Fatalf("PORT must be set (e.g. :8000)")
+	}
+
+	caddyAdminURL := os.Getenv("CADDY_ADMIN_URL")
+	if caddyAdminURL == "" {
+		log.Fatalf("CADDY_ADMIN_URL must be set (e.g. http://caddy:2019)")
+	}
 
 	dbPath := os.Getenv("DB_PATH")
 	if dbPath == "" {
@@ -36,28 +47,38 @@ func main() {
 	if err != nil {
 		log.Fatalf("migrate db: %v", err)
 	}
-	stream := stream.NewHub()
+
+	hub := stream.NewHub()
 	dockerClient, err := docker.NewClient(ctx)
 	if err != nil {
 		log.Fatalf("connect docker: %v", err)
 	}
 
-	caddyAdminURL := os.Getenv("CADDY_ADMIN_URL")
 	caddyClient := caddy.NewClient(caddyAdminURL)
-	service := service.NewService(database, stream, dockerClient, caddyClient)
-	deploymentHandler := handler.NewDeploymentHandler(service, database, stream)
+	svc := service.NewService(database, hub, dockerClient, caddyClient)
+	deploymentHandler := handler.NewDeploymentHandler(svc, database, hub)
+	h := handler.NewHandler(deploymentHandler, database, dockerClient)
 
-	h := handler.NewHandler(deploymentHandler, database)
+	srv := h.NewServer(port)
 
-	port := os.Getenv("PORT")
 	go func() {
-		log.Printf("server running on  %s", port)
-		err := h.Listen(port)
-		if err != nil {
+		log.Printf("server running on %s", srv.Addr)
+		err := srv.ListenAndServe()
+		if err != nil && !errors.Is(err, http.ErrServerClosed) {
 			log.Fatalf("server error: %v", err)
 		}
 	}()
-	quit := make(chan os.Signal, 1)
-	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
-	<-quit
+
+	<-ctx.Done()
+	stop()
+	log.Println("shutting down")
+
+	shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	err = srv.Shutdown(shutdownCtx)
+	if err != nil {
+		log.Printf("forcing shutdown; graceful shutdown interrupted %v", err)
+		_ = srv.Close()
+	}
 }
