@@ -1,8 +1,10 @@
 <script lang="ts">
-  import type { Deployment, LogEntry, DeploymentStatus } from '$lib/types';
+  import type { Deployment, LogEntry } from '$lib/types';
   import { listDeployments, createDeployment, deleteDeployment, stopDeployment, streamDeploymentLogs } from '$lib/api';
+  import { getDisplayName } from '$lib/utils';
   import Header from '$lib/components/Header.svelte';
-  import DeployForm from '$lib/components/DeployForm.svelte'
+  import DeployForm from '$lib/components/DeployForm.svelte';
+  import DeploymentList from '$lib/components/DeploymentList.svelte'
   import { SvelteSet } from 'svelte/reactivity';
 
   type ApiResponse<T> = {
@@ -22,18 +24,6 @@
 
 
   const pendingIds = new SvelteSet<string>();
-
-  function getStatusClass(status: DeploymentStatus): string {
-    switch (status) {
-      case 'running': return 'bg-green-500';
-      case 'building':
-      case 'deploying': return 'bg-yellow-500';
-      case 'failed': return 'bg-red-500';
-      case 'pending':
-      case 'stopped':
-      default: return 'bg-gray-400';
-    }
-  }
 
   async function fetchDeployments() {
     try {
@@ -149,10 +139,6 @@
       pendingIds.delete(dep.id);
     }
   }
-
-  function getDisplayName(dep: Deployment): string {
-    return dep.github_url.split('/').slice(-2).join('/');
-  }
 </script>
 
 
@@ -160,4 +146,22 @@
 <div class="flex h-screen flex-col bg-gray-900 text-gray-200">
   <Header count={deployments.length} />
   <DeployForm ondeploy={handleDeploy} />
+  <main class="flex min-h-0 flex-1">
+    <!-- <LogPanel /> -->
+    <section class="w-3/5 border-r border-gray-700 p-4 text-sm text-gray-500">
+      Select a deployment to see its logs.
+    </section>
+
+    <div class="w-2/5">
+      <DeploymentList
+        {deployments}
+        {selectedId}
+        {pendingIds}
+        {fetchError}
+        {actionError}
+        onselect={(id) => (selectedId = id)}
+        ondelete={requestDelete}
+      />
+    </div>
+  </main>
 </div>
