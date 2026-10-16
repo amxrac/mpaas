@@ -1,6 +1,8 @@
 <script lang="ts">
   import type { Deployment, LogEntry, DeploymentStatus } from '$lib/types';
   import { listDeployments, createDeployment, deleteDeployment, stopDeployment, streamDeploymentLogs } from '$lib/api';
+  import Header from '$lib/components/Header.svelte';
+  import DeployForm from '$lib/components/DeployForm.svelte'
   import { SvelteSet } from 'svelte/reactivity';
 
   type ApiResponse<T> = {
@@ -9,12 +11,8 @@
     data?: T;
   };
 
-  let url = $state('');
-  let port = $state<number | undefined>(undefined);
   let deployments = $state<Deployment[]>([]);
   let selectedId = $state<string | null>(null);
-  let isSubmitting = $state(false);
-  let error = $state<string | null>(null);
   let fetchError = $state<string | null>(null);
   let actionError = $state<string | null>(null);
   let logs = $state<LogEntry[]>([]);
@@ -35,10 +33,6 @@
       case 'stopped':
       default: return 'bg-gray-400';
     }
-  }
-
-  function isValidPort(p: number | undefined): boolean {
-    return p === undefined || (Number.isInteger(p) && p >= 1 && p <= 65535);
   }
 
   async function fetchDeployments() {
@@ -104,31 +98,10 @@
     };
   });
 
-  async function handleSubmit(e: Event) {
-    e.preventDefault();
-    if (isSubmitting) return;
-    if (!url.trim()) return;
-
-    if (!isValidPort(port)) {
-      error = 'Port must be a whole number from 1 to 65535';
-      return;
-    }
-
-    isSubmitting = true;
-    error = null;
-
-    try {
-      const res: ApiResponse<Deployment> = await createDeployment(url.trim(), port);
-      await fetchDeployments();
-      selectedId = res.data?.id ?? null;
-      url = "";
-      port = undefined;
-    } catch (err) {
-      error = "Failed to create deployment";
-      console.error(error, err);
-    } finally {
-      isSubmitting = false;
-    }
+  async function handleDeploy(url: string, port: number | undefined) {
+    const res: ApiResponse<Deployment> = await createDeployment(url, port);
+    await fetchDeployments();
+    selectedId = res.data?.id ?? null;
   }
 
   async function handleStop(id: string) {
@@ -181,3 +154,10 @@
     return dep.github_url.split('/').slice(-2).join('/');
   }
 </script>
+
+
+
+<div class="flex h-screen flex-col bg-gray-900 text-gray-200">
+  <Header count={deployments.length} />
+  <DeployForm ondeploy={handleDeploy} />
+</div>

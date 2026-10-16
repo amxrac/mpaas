@@ -26,6 +26,7 @@ import (
 var errInvalidGitHubRepoURL = errors.New("invalid github repo url")
 var ErrInvalidPort = errors.New("invalid port")
 var validRepoName = regexp.MustCompile(`^[A-Za-z0-9_.-]+$`)
+var validOwnerName = regexp.MustCompile(`^[A-Za-z0-9]+(-[A-Za-z0-9]+)*$`)
 
 type runHandle struct {
 	cancel context.CancelFunc
@@ -325,18 +326,43 @@ func (s *Service) emitLog(ctx context.Context, message, deploymentID string) {
 }
 
 func ParseGitHubRepoURL(input string) (u *url.URL, ownerName, repoName string, err error) {
+	maxOwnerLen := 39
 	if !strings.Contains(input, "://") {
 		input = "https://" + input
 	}
 	u, err = url.ParseRequestURI(input)
-	if err != nil || u.Scheme != "https" || !strings.EqualFold(u.Host, "github.com") || u.RawQuery != "" || u.Fragment != "" {
+	if err != nil ||
+		u.Scheme != "https" ||
+		!strings.EqualFold(u.Host, "github.com") ||
+		u.RawQuery != "" ||
+		u.ForceQuery ||
+		u.Fragment != "" {
 		return nil, "", "", errInvalidGitHubRepoURL
 	}
+
+	if strings.Contains(u.EscapedPath(), "%") {
+		return nil, "", "", errInvalidGitHubRepoURL
+	}
+
 	parts := strings.Split(strings.Trim(u.Path, "/"), "/")
-	if len(parts) != 2 || !validRepoName.MatchString(parts[0]) || !validRepoName.MatchString(parts[1]) || parts[0] == "." || parts[0] == ".." || parts[1] == "." || parts[1] == ".." {
+	if len(parts) != 2 {
 		return nil, "", "", errInvalidGitHubRepoURL
 	}
-	return u, parts[0], parts[1], nil
+	owner, repo := parts[0], parts[1]
+	if len(owner) > maxOwnerLen || !validOwnerName.MatchString(owner) {
+		return nil, "", "", errInvalidGitHubRepoURL
+	}
+
+	if !validRepoName.MatchString(repo) || repo == "." || repo == ".." {
+		return nil, "", "", errInvalidGitHubRepoURL
+	}
+
+	// CHANGED: reject a ".git" suffix case-insensitively; also catches repo == ".git".
+	if strings.HasSuffix(strings.ToLower(repo), ".git") {
+		return nil, "", "", errInvalidGitHubRepoURL
+	}
+
+	return u, owner, repo, nil
 }
 
 func cloneRepo(ctx context.Context, repoURL string, output io.Writer) (dir, ownerName, repoName string, err error) {
