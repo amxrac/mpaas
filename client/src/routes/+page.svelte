@@ -1,10 +1,12 @@
 <script lang="ts">
-  import type { Deployment, LogEntry } from '$lib/types';
-  import { listDeployments, createDeployment, deleteDeployment, stopDeployment, streamDeploymentLogs } from '$lib/api';
+  import type { Deployment } from '$lib/types';
+  import { listDeployments, createDeployment, deleteDeployment, stopDeployment } from '$lib/api';
   import { getDisplayName } from '$lib/utils';
   import Header from '$lib/components/Header.svelte';
   import DeployForm from '$lib/components/DeployForm.svelte';
   import DeploymentList from '$lib/components/DeploymentList.svelte'
+  import LogPanel from '$lib/components/LogPanel.svelte';
+  import ConfirmDialog from '$lib/components/ConfirmDialog.svelte'
   import { SvelteSet } from 'svelte/reactivity';
 
   type ApiResponse<T> = {
@@ -17,13 +19,11 @@
   let selectedId = $state<string | null>(null);
   let fetchError = $state<string | null>(null);
   let actionError = $state<string | null>(null);
-  let logs = $state<LogEntry[]>([]);
-  let eventSource: EventSource | null = null
-
   let deleteTarget = $state<Deployment | null>(null);
-
-
   const pendingIds = new SvelteSet<string>();
+
+  let selected = $derived(deployments.find((d) => d.id === selectedId) ?? null);
+
 
   async function fetchDeployments() {
     try {
@@ -40,52 +40,6 @@
     fetchDeployments();
     let intervalId = setInterval(fetchDeployments, 5000);
     return () => clearInterval(intervalId);
-  });
-
-  function connectSSE(id: string) {
-    if (eventSource) {
-      eventSource.close();
-      eventSource = null;
-    }
-    logs = [];
-
-    const es = streamDeploymentLogs(id);
-    es.onmessage = (event) => {
-      try {
-        const data = JSON.parse(event.data) as LogEntry;
-        logs = [...logs, data];
-        const container = document.querySelector('.log-container');
-        if (container) {
-          requestAnimationFrame(() => {
-            container.scrollTop = container.scrollHeight;
-          });
-        }
-      } catch {
-        //
-      }
-    };
-    es.onerror = () => {
-      console.error('SSE error for', id);
-    };
-    eventSource = es;
-  }
-
-  $effect(() => {
-    if (selectedId) {
-      connectSSE(selectedId);
-    } else {
-      if (eventSource) {
-        eventSource.close();
-        eventSource = null;
-      }
-      logs = [];
-    }
-    return () => {
-      if (eventSource) {
-        eventSource.close();
-        eventSource = null;
-      }
-    };
   });
 
   async function handleDeploy(url: string, port: number | undefined) {
@@ -147,12 +101,16 @@
   <Header count={deployments.length} />
   <DeployForm ondeploy={handleDeploy} />
   <main class="flex min-h-0 flex-1">
-    <!-- <LogPanel /> -->
-    <section class="w-3/5 border-r border-gray-700 p-4 text-sm text-gray-500">
-      Select a deployment to see its logs.
-    </section>
+      <section class="w-3/5 border-r border-gray-700">
+            <LogPanel
+              deploymentId={selectedId}
+              deployment={selected}
+              stopping={selectedId !== null && pendingIds.has(selectedId)}
+              onstop={handleStop}
+            />
+        </section>
 
-    <div class="w-2/5">
+        <div class="w-2/5">
       <DeploymentList
         {deployments}
         {selectedId}
@@ -164,4 +122,11 @@
       />
     </div>
   </main>
+  <ConfirmDialog
+      open={deleteTarget !== null}
+      title="Delete deployment"
+      message={deleteTarget ? `Delete ${getDisplayName(deleteTarget)}? This can't be undone.` : ''}
+      onconfirm={confirmDelete}
+      oncancel={cancelDelete}
+    />
 </div>
