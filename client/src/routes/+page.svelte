@@ -1,15 +1,29 @@
 <script lang="ts">
   import type { Deployment, LogEntry, DeploymentStatus } from '$lib/types';
-  import { listDeployments, createDeployment, deleteDeployment, streamDeploymentLogs } from '$lib/api';
+  import { listDeployments, createDeployment, deleteDeployment, stopDeployment, streamDeploymentLogs } from '$lib/api';
+  import { SvelteSet } from 'svelte/reactivity';
+
+  type ApiResponse<T> = {
+    success: boolean;
+    message: string;
+    data?: T;
+  };
 
   let url = $state('');
+  let port = $state<number | undefined>(undefined);
   let deployments = $state<Deployment[]>([]);
   let selectedId = $state<string | null>(null);
   let isSubmitting = $state(false);
   let error = $state<string | null>(null);
+  let fetchError = $state<string | null>(null);
+  let actionError = $state<string | null>(null);
   let logs = $state<LogEntry[]>([]);
-  let modalOpen = $state(false);
   let eventSource: EventSource | null = null
+
+  let deleteTarget = $state<Deployment | null>(null);
+
+
+  const pendingIds = new SvelteSet<string>();
 
   function getStatusClass(status: DeploymentStatus): string {
     switch (status) {
@@ -23,12 +37,18 @@
     }
   }
 
+  function isValidPort(p: number | undefined): boolean {
+    return p === undefined || (Number.isInteger(p) && p >= 1 && p <= 65535);
+  }
+
   async function fetchDeployments() {
     try {
-      const data = await listDeployments();
-      deployments = data;
-    } catch {
-      console.error('Failed to fetch deployments');
+      const res: ApiResponse<Deployment[]> = await listDeployments();
+      deployments = res.data ?? [];
+      fetchError = null;
+    } catch (err) {
+      fetchError = 'Could not load deployments';
+      console.error('Failed to fetch deployments', err);
     }
   }
 
@@ -86,15 +106,23 @@
 
   async function handleSubmit(e: Event) {
     e.preventDefault();
+    if (isSubmitting) return;
     if (!url.trim()) return;
+
+    if (!isValidPort(port)) {
+      error = 'Port must be a whole number from 1 to 65535';
+      return;
+    }
+
     isSubmitting = true;
     error = null;
 
     try {
-      const response = await createDeployment(url.trim());
+      const res: ApiResponse<Deployment> = await createDeployment(url.trim(), port);
       await fetchDeployments();
-      selectedId = response.id;
+      selectedId = res.data?.id ?? null;
       url = "";
+      port = undefined;
     } catch (err) {
       error = "Failed to create deployment";
       console.error(error, err);
@@ -103,13 +131,49 @@
     }
   }
 
-  async function handleDelete(id: string) {
+  async function handleStop(id: string) {
+    if (pendingIds.has(id)) return;
+    pendingIds.add(id);
+    actionError = null;
     try {
-      await deleteDeployment(id);
-      deployments = deployments.filter(d => d.id !== id);
-      if (selectedId === id) selectedId = null;
+      await stopDeployment(id);
+      await fetchDeployments();
     } catch (err) {
-      console.error("Failed to delete deployment", err);
+      actionError = 'Failed to stop deployment';
+      console.error(actionError, err);
+    } finally {
+      pendingIds.delete(id);
+    }
+  }
+
+  function requestDelete(dep: Deployment) {
+    if (pendingIds.has(dep.id)) return;
+    deleteTarget = dep;
+  }
+
+  function confirmDelete() {
+    const dep = deleteTarget;
+    deleteTarget = null;
+    if (dep) handleDelete(dep);
+  }
+
+  function cancelDelete() {
+    deleteTarget = null;
+  }
+
+  async function handleDelete(dep: Deployment) {
+    if (pendingIds.has(dep.id)) return;
+    pendingIds.add(dep.id);
+    actionError = null;
+    try {
+      await deleteDeployment(dep.id);
+      deployments = deployments.filter(d => d.id !== dep.id);
+      if (selectedId === dep.id) selectedId = null;
+    } catch (err) {
+      actionError = 'Failed to delete deployment';
+      console.error(actionError, err);
+    } finally {
+      pendingIds.delete(dep.id);
     }
   }
 

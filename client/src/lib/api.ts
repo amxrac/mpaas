@@ -16,10 +16,10 @@ export async function api(path: string, init?: RequestInit): Promise<Response> {
   return res;
 }
 
-export async function createDeployment(github_url: string) {
+export async function createDeployment(github_url: string, port?: number) {
   const res: Response = await api("/deployments", {
     method: "POST",
-    body: JSON.stringify({ github_url: github_url })
+    body: JSON.stringify({ github_url: github_url, port })
   });
 
   if (!res.ok) {
