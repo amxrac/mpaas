@@ -41,7 +41,7 @@
       connection = 'open';
     };
 
-    es.onmessage = async (event) => {
+    const handleLog = async (event: MessageEvent<string>) => {
       let entry: LogEntry;
       try {
         entry = JSON.parse(event.data);
@@ -65,6 +65,8 @@
       }
     };
 
+    es.addEventListener('log', handleLog);
+
     es.onerror = () => {
       if (!deployment || FINISHED.has(deployment.status)) {
         es.close();
@@ -74,7 +76,10 @@
       }
     };
 
-    return () => es.close();
+    return () => {
+      es.removeEventListener('log', handleLog);
+      es.close();
+    };
   });
 
   function handleStop() {
@@ -86,8 +91,20 @@
     return Number.isNaN(d.getTime()) ? '' : d.toLocaleTimeString();
   }
 
+  const FINISHED_LABELS: Record<string, string> = {
+    running: 'Build complete',
+    failed: 'Build failed',
+    stopped: 'Build stopped',
+  };
+
   let connectionLabel = $derived(
-    connection === 'open' ? 'Streaming' : connection === 'connecting' ? 'Connecting…' : 'Stream ended',
+    deployment && FINISHED_LABELS[deployment.status]
+      ? FINISHED_LABELS[deployment.status]
+      : connection === 'open'
+        ? 'Streaming'
+        : connection === 'connecting'
+          ? 'Connecting…'
+          : 'Stream ended',
   );
 </script>
 

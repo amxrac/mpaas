@@ -14,7 +14,7 @@ export interface Deployment {
   github_url: string
   image_name: string
   container_name: string
-  container_port: string
+  container_port: number
   caddy_route: string
   created_at: string
   updated_at: string

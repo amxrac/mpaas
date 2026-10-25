@@ -78,7 +78,7 @@ func main() {
 
 	err = srv.Shutdown(shutdownCtx)
 	if err != nil {
-		log.Printf("forcing shutdown; graceful shutdown interrupted %v", err)
+		log.Printf("forcing shutdown; graceful shutdown interrupted. %v", err)
 		_ = srv.Close()
 	}
 }

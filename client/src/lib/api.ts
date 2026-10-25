@@ -54,7 +54,7 @@ export async function listDeployments() {
 }
 
 export async function deleteDeployment(id: string) {
-  const res = await api(`/deployments/${id}/delete`, {
+  const res = await api(`/deployments/${id}`, {
     method: 'DELETE'
   });
 
