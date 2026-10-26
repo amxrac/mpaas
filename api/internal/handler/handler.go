@@ -26,8 +26,9 @@ type apiResponse struct {
 }
 
 type createDeploymentRequest struct {
-	GithubURL string `json:"github_url"`
-	Port      int    `json:"port,omitempty"`
+	GithubURL string            `json:"github_url"`
+	Port      int               `json:"port,omitempty"`
+	Env       map[string]string `json:"env,omitempty"`
 }
 
 func NewDeploymentHandler(
@@ -58,9 +59,13 @@ func (h *deploymentHandler) Create(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	deployment, err := h.service.Deploy(r.Context(), githubURL, req.Port)
+	deployment, err := h.service.Deploy(r.Context(), service.DeployOpts{
+		GithubURL: githubURL,
+		Port:      req.Port,
+		Env:       req.Env,
+	})
 	if err != nil {
-		if errors.Is(err, service.ErrInvalidPort) {
+		if errors.Is(err, service.ErrInvalidPort) || errors.Is(err, service.ErrInvalidEnvVar) {
 			badRequest(w, err.Error(), nil)
 			return
 		}

@@ -25,8 +25,10 @@ import (
 
 var errInvalidGitHubRepoURL = errors.New("invalid github repo url")
 var ErrInvalidPort = errors.New("invalid port")
+var ErrInvalidEnvVar = errors.New("invalid env var")
 var validRepoName = regexp.MustCompile(`^[A-Za-z0-9_.-]+$`)
 var validOwnerName = regexp.MustCompile(`^[A-Za-z0-9]+(-[A-Za-z0-9]+)*$`)
+var vaildEnvVar = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
 
 type runHandle struct {
 	cancel context.CancelFunc
@@ -40,6 +42,12 @@ type Service struct {
 	caddyClient  *caddy.Client
 	runsMu       sync.Mutex
 	runs         map[string]*runHandle
+}
+
+type DeployOpts struct {
+	GithubURL string
+	Port      int
+	Env       map[string]string
 }
 
 func NewService(
@@ -61,16 +69,22 @@ func NewService(
 // Deploy creates a new deployment record,
 // sets up a cancellable background context,
 // and starts run() on a single goroutine.
-func (s *Service) Deploy(ctx context.Context, githubURL string, port int) (*models.Deployment, error) {
-	portErr := validateContainerPort(port)
+func (s *Service) Deploy(ctx context.Context, opts DeployOpts) (*models.Deployment, error) {
+	portErr := validateContainerPort(opts.Port)
 	if portErr != nil {
 		return nil, portErr
 	}
 
+	envErr := validateEnvVars(opts.Env)
+	if envErr != nil {
+		return nil, envErr
+	}
+
 	deployment := &models.Deployment{
-		GithubURL:     githubURL,
+		GithubURL:     opts.GithubURL,
 		Status:        models.StatusPending,
-		ContainerPort: port,
+		ContainerPort: opts.Port,
+		Env:           opts.Env,
 	}
 
 	err := s.db.InsertDeployment(ctx, deployment)
@@ -462,6 +476,34 @@ func validateContainerPort(port int) error {
 		return fmt.Errorf("%w %d: must be between 1 and 65535", ErrInvalidPort, port)
 	}
 
+	return nil
+}
+
+func validateEnvVars(env map[string]string) error {
+	maxEnvVars := 50
+	maxEnvValueLen := 4096
+
+	if len(env) > maxEnvVars {
+		return fmt.Errorf("%w: %d variables at most", ErrInvalidEnvVar, maxEnvVars)
+	}
+
+	for k, v := range env {
+		if !vaildEnvVar.MatchString(k) {
+			return fmt.Errorf("%w: key %q must match [A-Za-z_][A-Za-z0-9_]*", ErrInvalidEnvVar, k)
+		}
+
+		if k == "PORT" {
+			return fmt.Errorf("%w: use the port field to set PORT", ErrInvalidEnvVar)
+		}
+
+		if len(v) > maxEnvValueLen {
+			return fmt.Errorf("%w: value for %q exceeds %d bytes", ErrInvalidEnvVar, k, maxEnvValueLen)
+		}
+
+		if strings.ContainsRune(v, 0) {
+			return fmt.Errorf("%w: value for %q contains a NUL byte", ErrInvalidEnvVar, k)
+		}
+	}
 	return nil
 }
 

@@ -6,6 +6,7 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"sort"
 	"strings"
 
 	cerrdefs "github.com/containerd/errdefs"
@@ -41,6 +42,7 @@ type RunContainerOpts struct {
 	ImageName     string
 	DeployID      string
 	NetworkName   string
+	Env           map[string]string
 }
 
 func NewClient(ctx context.Context) (*Client, error) {
@@ -93,9 +95,19 @@ func (c *Client) RunContainer(ctx context.Context, opts RunContainerOpts) (conta
 	labels := labelMap()
 	labels["deploy-id"] = opts.DeployID
 
+	env := []string{"PORT=" + opts.ContainerPort}
+	keys := make([]string, 0, len(opts.Env))
+	for k := range opts.Env {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	for _, k := range keys {
+		env = append(env, k+"="+opts.Env[k])
+	}
+
 	cfg := &container.Config{
 		Image:        opts.ImageName,
-		Env:          []string{"PORT=" + opts.ContainerPort},
+		Env:          env,
 		Labels:       labels,
 		ExposedPorts: network.PortSet{port: {}},
 	}
@@ -110,7 +122,7 @@ func (c *Client) RunContainer(ctx context.Context, opts RunContainerOpts) (conta
 		Name:       opts.ContainerName,
 	})
 	if err != nil {
-		return "", int(port.Num()), fmt.Errorf("container create: %w", err)
+		return "", 0, fmt.Errorf("container create: %w", err)
 	}
 
 	_, err = c.cli.ContainerStart(ctx, created.ID, client.ContainerStartOptions{})
@@ -119,7 +131,7 @@ func (c *Client) RunContainer(ctx context.Context, opts RunContainerOpts) (conta
 		return "", 0, fmt.Errorf("container start: %w", err)
 	}
 
-	return created.ID, int(port.Num()), err
+	return created.ID, int(port.Num()), nil
 }
 
 func (c *Client) Stop(ctx context.Context, containerID string, timeoutSecs int) error {
@@ -189,7 +201,7 @@ func (c *Client) getHostPort(ctx context.Context, containerID string, port netwo
 func resolveDockerHost(ctx context.Context) (string, error) {
 	h := os.Getenv("DOCKER_HOST")
 	if h != "" {
-		return h, nil
+		return "", nil
 	}
 
 	out, err := exec.CommandContext(
