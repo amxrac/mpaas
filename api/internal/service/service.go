@@ -5,10 +5,12 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/url"
 	"os"
 	"os/exec"
+	"path"
 	"path/filepath"
 	"regexp"
 	"strconv"
@@ -26,9 +28,13 @@ import (
 var errInvalidGitHubRepoURL = errors.New("invalid github repo url")
 var ErrInvalidPort = errors.New("invalid port")
 var ErrInvalidEnvVar = errors.New("invalid env var")
+var ErrInvalidRootDir = errors.New("invalid root directory")
+var errContainerNotRunning = errors.New("container is not running")
 var validRepoName = regexp.MustCompile(`^[A-Za-z0-9_.-]+$`)
 var validOwnerName = regexp.MustCompile(`^[A-Za-z0-9]+(-[A-Za-z0-9]+)*$`)
 var vaildEnvVar = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
+var validRootDir = regexp.MustCompile(`^[A-Za-z0-9._/-]+$`)
+var invalidHostChars = regexp.MustCompile(`[^a-z0-9-]+`)
 
 type runHandle struct {
 	cancel context.CancelFunc
@@ -48,6 +54,7 @@ type DeployOpts struct {
 	GithubURL string
 	Port      int
 	Env       map[string]string
+	RootDir   string
 }
 
 func NewService(
@@ -70,14 +77,19 @@ func NewService(
 // sets up a cancellable background context,
 // and starts run() on a single goroutine.
 func (s *Service) Deploy(ctx context.Context, opts DeployOpts) (*models.Deployment, error) {
-	portErr := validateContainerPort(opts.Port)
-	if portErr != nil {
-		return nil, portErr
+	err := validateContainerPort(opts.Port)
+	if err != nil {
+		return nil, err
 	}
 
-	envErr := validateEnvVars(opts.Env)
-	if envErr != nil {
-		return nil, envErr
+	err = validateEnvVars(opts.Env)
+	if err != nil {
+		return nil, err
+	}
+
+	rootDir, err := normalizeRootDir(opts.RootDir)
+	if err != nil {
+		return nil, err
 	}
 
 	deployment := &models.Deployment{
@@ -85,9 +97,10 @@ func (s *Service) Deploy(ctx context.Context, opts DeployOpts) (*models.Deployme
 		Status:        models.StatusPending,
 		ContainerPort: opts.Port,
 		Env:           opts.Env,
+		RootDir:       rootDir,
 	}
 
-	err := s.db.InsertDeployment(ctx, deployment)
+	err = s.db.InsertDeployment(ctx, deployment)
 	if err != nil {
 		s.emitLog(ctx, "insert deployment error", deployment.ID)
 		return nil, fmt.Errorf("insert deployment: %w", err)
@@ -180,9 +193,18 @@ func (s *Service) run(ctx context.Context, deployment *models.Deployment, handle
 	defer os.RemoveAll(filepath.Dir(dir))
 	lw.Flush()
 
-	imageName := strings.ToLower(ownerName + "/" + repoName)
+	buildDir := filepath.Join(dir, filepath.FromSlash(deployment.RootDir))
+	info, statErr := os.Stat(buildDir)
+	if statErr != nil || !info.IsDir() {
+		s.failDeployment(ctx, deployment,
+			fmt.Sprintf("root directory %q not found in repository", deployment.RootDir))
+		return
+	}
+
+	label := hostLabel(ownerName, repoName, deployment.RootDir)
+	imageName := strings.ToLower(ownerName) + "/" + hostLabel(repoName, deployment.RootDir)
 	deployID := strconv.FormatInt(time.Now().UnixNano(), 10)
-	containerName := strings.ToLower(ownerName + "-" + repoName + "-" + deployID)
+	containerName := label + "-" + deployID
 	deployment.Status = models.StatusBuilding
 	deployment.ImageName = imageName
 	deployment.ContainerName = containerName
@@ -196,7 +218,7 @@ func (s *Service) run(ctx context.Context, deployment *models.Deployment, handle
 	lw.Flush()
 
 	s.emitLog(ctx, "building image with railpack", deployment.ID)
-	buildErr := buildContainerImage(ctx, dir, imageName, lw)
+	buildErr := buildContainerImage(ctx, buildDir, imageName, lw)
 	if buildErr != nil {
 		lw.Flush()
 		s.failDeployment(ctx, deployment, fmt.Sprintf("build failed: %v", buildErr))
@@ -235,6 +257,7 @@ func (s *Service) run(ctx context.Context, deployment *models.Deployment, handle
 		ImageName:     deployment.ImageName,
 		DeployID:      deployID,
 		NetworkName:   networkName,
+		Env:           deployment.Env,
 	})
 	deployment.ContainerPort = resolvedPort
 	if runErr != nil {
@@ -263,8 +286,8 @@ func (s *Service) run(ctx context.Context, deployment *models.Deployment, handle
 
 	s.emitLog(ctx, "routing via caddy", deployment.ID)
 
-	host := strings.ToLower(ownerName+"-"+repoName) + ".localhost"
-	routeID := strings.ToLower(ownerName + "-" + repoName)
+	host := label + ".localhost"
+	routeID := label
 	removeRouteErr := s.caddyClient.RemoveRoute(ctx, routeID)
 	if removeRouteErr != nil {
 		lw.Flush()
@@ -371,12 +394,46 @@ func ParseGitHubRepoURL(input string) (u *url.URL, ownerName, repoName string, e
 		return nil, "", "", errInvalidGitHubRepoURL
 	}
 
-	// CHANGED: reject a ".git" suffix case-insensitively; also catches repo == ".git".
 	if strings.HasSuffix(strings.ToLower(repo), ".git") {
 		return nil, "", "", errInvalidGitHubRepoURL
 	}
 
 	return u, owner, repo, nil
+}
+
+func hostLabel(parts ...string) string {
+	s := strings.ToLower(strings.Join(parts, "-"))
+	s = invalidHostChars.ReplaceAllString(s, "-")
+	s = strings.Trim(s, "-")
+	if len(s) > 63 {
+		s = strings.TrimRight(s[:63], "-")
+	}
+
+	if s == "" {
+		s = "app"
+	}
+	return s
+}
+
+func normalizeRootDir(dir string) (string, error) {
+	dir = strings.TrimSpace(dir)
+	if dir == "" {
+		return "", nil
+	}
+
+	if strings.HasPrefix(dir, "/") {
+		return "", fmt.Errorf("%w: path must be a relative, like apps/web", ErrInvalidRootDir)
+	}
+
+	clean := path.Clean(dir)
+	if clean == "." {
+		return "", nil
+	}
+
+	if clean == ".." || strings.HasPrefix(clean, "../") {
+		return "", fmt.Errorf("%w: must stay inside the repository", ErrInvalidRootDir)
+	}
+	return clean, nil
 }
 
 func cloneRepo(ctx context.Context, repoURL string, output io.Writer) (dir, ownerName, repoName string, err error) {
@@ -513,6 +570,7 @@ func httpHealthCheck(ctx context.Context, url string) error {
 	defer ticker.Stop()
 
 	var lastErr error
+	notFound := 0
 	for {
 		req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 		if err != nil {
@@ -528,6 +586,16 @@ func httpHealthCheck(ctx context.Context, url string) error {
 			lastErr = fmt.Errorf("status %d", resp.StatusCode)
 		} else {
 			lastErr = err
+
+			var dnsErr *net.DNSError
+			if errors.As(err, &dnsErr) && dnsErr.IsNotFound {
+				notFound++
+				if notFound >= 3 {
+					return errContainerNotRunning
+				} else {
+					notFound = 0
+				}
+			}
 		}
 
 		select {

@@ -28,6 +28,7 @@ type Deployment struct {
 	ContainerPort int               `json:"container_port"`
 	CaddyRoute    string            `json:"caddy_route"`
 	Env           map[string]string `gorm:"serializer:json" json:"-"`
+	RootDir       string            `json:"root_dir"`
 	CreatedAt     time.Time         `json:"created_at" gorm:"autoCreateTime"`
 	UpdatedAt     time.Time         `json:"updated_at" gorm:"autoUpdateTime"`
 }

@@ -29,6 +29,7 @@ type createDeploymentRequest struct {
 	GithubURL string            `json:"github_url"`
 	Port      int               `json:"port,omitempty"`
 	Env       map[string]string `json:"env,omitempty"`
+	RootDir   string            `json:"root_dir,omitempty"`
 }
 
 func NewDeploymentHandler(
@@ -63,9 +64,10 @@ func (h *deploymentHandler) Create(w http.ResponseWriter, r *http.Request) {
 		GithubURL: githubURL,
 		Port:      req.Port,
 		Env:       req.Env,
+		RootDir:   req.RootDir,
 	})
 	if err != nil {
-		if errors.Is(err, service.ErrInvalidPort) || errors.Is(err, service.ErrInvalidEnvVar) {
+		if errors.Is(err, service.ErrInvalidPort) || errors.Is(err, service.ErrInvalidEnvVar) || errors.Is(err, service.ErrInvalidRootDir) {
 			badRequest(w, err.Error(), nil)
 			return
 		}
