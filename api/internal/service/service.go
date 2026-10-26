@@ -2,6 +2,8 @@ package service
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
@@ -13,6 +15,7 @@ import (
 	"path"
 	"path/filepath"
 	"regexp"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -218,7 +221,7 @@ func (s *Service) run(ctx context.Context, deployment *models.Deployment, handle
 	lw.Flush()
 
 	s.emitLog(ctx, "building image with railpack", deployment.ID)
-	buildErr := buildContainerImage(ctx, buildDir, imageName, lw)
+	buildErr := buildContainerImage(ctx, buildDir, imageName, deployment.Env, lw)
 	if buildErr != nil {
 		lw.Flush()
 		s.failDeployment(ctx, deployment, fmt.Sprintf("build failed: %v", buildErr))
@@ -480,21 +483,36 @@ func cloneRepo(ctx context.Context, repoURL string, output io.Writer) (dir, owne
 	return dir, ownerName, repoName, nil
 }
 
-func buildContainerImage(ctx context.Context, buildDir, imageName string, output io.Writer) error {
+func buildContainerImage(ctx context.Context, buildDir, imageName string, env map[string]string, output io.Writer) error {
 	planPath := filepath.Join(buildDir, "railpack-plan.json")
 
 	buildCtx, cancel := context.WithTimeout(ctx, 10*time.Minute)
 	defer cancel()
 
-	cmd := exec.CommandContext(
-		buildCtx,
-		"railpack",
+	keys := make([]string, 0, len(env))
+	for k := range env {
+		keys = append(keys, k)
+	}
+
+	sort.Strings(keys)
+
+	prepareArgs := []string{
 		"prepare",
 		buildDir,
 		"--plan-out",
 		planPath,
 		"--info-out",
 		filepath.Join(buildDir, "railpack-info.json"),
+	}
+
+	for _, k := range keys {
+		prepareArgs = append(prepareArgs, "--env", k+"="+env[k])
+	}
+
+	cmd := exec.CommandContext(
+		buildCtx,
+		"railpack",
+		prepareArgs...,
 	)
 	cmd.Stdout = output
 	cmd.Stderr = output
@@ -504,16 +522,35 @@ func buildContainerImage(ctx context.Context, buildDir, imageName string, output
 		return fmt.Errorf("railpack prepare: %w", err)
 	}
 
-	cmd2 := exec.CommandContext(
-		buildCtx,
-		"docker", "buildx", "build",
+	buildArgs := []string{
+		"buildx", "build",
 		"--build-arg", "BUILDKIT_SYNTAX=ghcr.io/railwayapp/railpack-frontend",
 		"-f", planPath,
 		"--progress=plain",
 		"-t", imageName,
 		"--load",
-		buildDir,
+	}
+
+	buildEnv := os.Environ()
+
+	if len(keys) > 0 {
+		h := sha256.New()
+		for _, k := range keys {
+			src := "MPAAS_SECRET_" + k
+			buildArgs = append(buildArgs, "--secret", "id="+k+",env="+src)
+			buildEnv = append(buildEnv, src+"="+env[k])
+			fmt.Fprintf(h, "%s=%s\n", k, env[k])
+		}
+		buildArgs = append(buildArgs, "--build-arg", "secrets-hash="+hex.EncodeToString(h.Sum(nil)))
+	}
+
+	buildArgs = append(buildArgs, buildDir)
+	cmd2 := exec.CommandContext(
+		buildCtx,
+		"docker",
+		buildArgs...,
 	)
+	cmd2.Env = buildEnv
 	cmd2.Stdout = output
 	cmd2.Stderr = output
 
