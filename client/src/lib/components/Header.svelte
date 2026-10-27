@@ -23,6 +23,7 @@
       href={REPO_URL}
       target="_blank"
       aria-label="View source on GitHub"
+      title="View source on GitHub"
       class="rounded p-1 hover:bg-gray-800 focus-visible:outline-2 focus-visible:outline-blue-500"
     >
       <img src={githubLogo} alt="" width="20" height="20" class="block" />

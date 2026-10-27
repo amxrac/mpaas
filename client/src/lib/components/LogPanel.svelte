@@ -106,6 +106,17 @@
           ? 'Connecting…'
           : 'Stream ended',
   );
+
+  let meta = $derived(
+    deployment
+      ? [
+          deployment.container_port > 0 ? `Port: ${deployment.container_port}` : '',
+          deployment.root_dir ? `Root dir: ${deployment.root_dir}` : '',
+        ]
+          .filter(Boolean)
+          .join(' · ')
+      : '',
+  );
 </script>
 
 <div class="flex h-full min-h-0 flex-col">
@@ -113,18 +124,21 @@
     <p class="p-4 text-sm text-gray-500">Select a deployment to see its logs.</p>
   {:else}
     <div class="flex items-center justify-between gap-2 border-b border-gray-700 px-3 py-2">
-      <div class="min-w-0">
-        <p class="truncate text-sm font-medium">{getDisplayName(deployment)}</p>
-        {#if deployment.status === 'running' && deployment.caddy_route}
-          <a
-            href={`http://${deployment.caddy_route}`}
-            target="_blank"
-            class="text-xs text-blue-400 hover:underline"
-          >
-            {deployment.caddy_route}
-          </a>
-        {/if}
-      </div>
+        <div class="min-w-0">
+          <p class="truncate text-sm font-medium">{getDisplayName(deployment)}</p>
+          {#if deployment.status === 'running' && deployment.caddy_route}
+            <a
+              href={`http://${deployment.caddy_route}`}
+              target="_blank"
+              class="text-xs text-blue-400 hover:underline"
+            >
+              {deployment.caddy_route}
+            </a>
+          {/if}
+          {#if meta}
+            <p class="truncate font-mono text-[11px] text-gray-500">{meta}</p>
+          {/if}
+        </div>
 
       <div class="flex items-center gap-2">
         <StatusPill status={deployment.status} />

@@ -36,7 +36,6 @@ var errContainerNotRunning = errors.New("container is not running")
 var validRepoName = regexp.MustCompile(`^[A-Za-z0-9_.-]+$`)
 var validOwnerName = regexp.MustCompile(`^[A-Za-z0-9]+(-[A-Za-z0-9]+)*$`)
 var vaildEnvVar = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
-var validRootDir = regexp.MustCompile(`^[A-Za-z0-9._/-]+$`)
 var invalidHostChars = regexp.MustCompile(`[^a-z0-9-]+`)
 
 type runHandle struct {

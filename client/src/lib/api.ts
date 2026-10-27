@@ -1,3 +1,5 @@
+import type { CreateDeploymentInput } from "./types";
+
 const API_URL = "/api";
 
 export async function api(path: string, init?: RequestInit): Promise<Response> {
@@ -16,17 +18,19 @@ export async function api(path: string, init?: RequestInit): Promise<Response> {
   return res;
 }
 
-export async function createDeployment(github_url: string, port?: number) {
+export async function createDeployment(input: CreateDeploymentInput) {
   const res: Response = await api("/deployments", {
     method: "POST",
-    body: JSON.stringify({ github_url: github_url, port })
+    body: JSON.stringify(input)
   });
 
+  const data = await res.json().catch(() => null);
+
   if (!res.ok) {
-    throw new Error("Failed to create deployment");
+    throw new Error(data?.message ?? "Failed to create deployment");
   }
 
-  return res.json()
+  return data
 }
 
 export async function getDeployment(id: string) {

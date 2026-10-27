@@ -1,5 +1,5 @@
 <script lang="ts">
-  import type { Deployment } from '$lib/types';
+  import type { Deployment, CreateDeploymentInput } from '$lib/types';
   import { listDeployments, createDeployment, deleteDeployment, stopDeployment } from '$lib/api';
   import { getDisplayName } from '$lib/utils';
   import Header from '$lib/components/Header.svelte';
@@ -42,8 +42,8 @@
     return () => clearInterval(intervalId);
   });
 
-  async function handleDeploy(url: string, port: number | undefined) {
-    const res: ApiResponse<Deployment> = await createDeployment(url, port);
+  async function handleDeploy(input: CreateDeploymentInput) {
+    const res: ApiResponse<Deployment> = await createDeployment(input);
     await fetchDeployments();
     selectedId = res.data?.id ?? null;
   }

@@ -6,6 +6,12 @@ export type DeploymentStatus =
   | 'failed'
   | 'stopped'
 
+export interface CreateDeploymentInput {
+  github_url: string
+  port?: number
+  root_dir?: string
+  env?: Record<string, string>
+}
 
 export interface Deployment {
   id: string
@@ -15,6 +21,7 @@ export interface Deployment {
   image_name: string
   container_name: string
   container_port: number
+  root_dir?: string
   caddy_route: string
   created_at: string
   updated_at: string
