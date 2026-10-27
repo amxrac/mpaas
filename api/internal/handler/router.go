@@ -75,12 +75,22 @@ func writeHealth(w http.ResponseWriter, status int, state, message string) {
 	_ = json.NewEncoder(w).Encode(body)
 }
 
+var allowedOrigins = map[string]bool{
+	"http://localhost:3000": true,
+	"http://127.0.0.1:3000": true,
+}
+
 func enableCORS(next http.Handler) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Add("Access-Control-Allow-Origin", "*")
-		w.Header().Add("Access-Control-Allow-Headers", "Content-Type, Content-Length, Accept-Encoding, X-CSRF-Token, Authorization, accept, origin, Cache-Control, X-Requested-With")
-		w.Header().Add("Access-Control-Allow-Methods", "POST, GET, OPTIONS, PUT, DELETE")
-		if r.Method == "OPTIONS" {
+		origin := r.Header.Get("Origin")
+		if allowedOrigins[origin] {
+			w.Header().Set("Access-Control-Allow-Origin", origin)
+			w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Cache-Control, Last-Event-ID")
+			w.Header().Set("Access-Control-Allow-Methods", "GET, POST, DELETE, OPTIONS")
+		}
+		w.Header().Add("Vary", "Origin")
+
+		if r.Method == http.MethodOptions {
 			w.WriteHeader(http.StatusNoContent)
 			return
 		}

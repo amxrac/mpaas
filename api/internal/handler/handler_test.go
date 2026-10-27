@@ -142,16 +142,38 @@ func TestListEmpty(t *testing.T) {
 }
 
 func TestCORSPreflight(t *testing.T) {
-	router, _ := newTestRouter(t)
-
-	req := httptest.NewRequest(http.MethodOptions, "/api/deployments", nil)
-	rec := httptest.NewRecorder()
-	router.ServeHTTP(rec, req)
-
-	if rec.Code != http.StatusNoContent {
-		t.Errorf("status = %d, want %d", rec.Code, http.StatusNoContent)
+	tests := []struct {
+		name       string
+		origin     string
+		wantOrigin string
+	}{
+		{"client on localhost", "http://localhost:3000", "http://localhost:3000"},
+		{"client on 127.0.0.1", "http://127.0.0.1:3000", "http://127.0.0.1:3000"},
+		{"other origin", "http://evil.example", ""},
+		{"wrong port", "http://localhost:5173", ""},
+		{"no origin", "", ""},
 	}
-	if got := rec.Header().Get("Access-Control-Allow-Origin"); got != "*" {
-		t.Errorf("Access-Control-Allow-Origin = %q, want %q", got, "*")
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			router, _ := newTestRouter(t)
+
+			req := httptest.NewRequest(http.MethodOptions, "/api/deployments", nil)
+			if tt.origin != "" {
+				req.Header.Set("Origin", tt.origin)
+			}
+			rec := httptest.NewRecorder()
+			router.ServeHTTP(rec, req)
+
+			if rec.Code != http.StatusNoContent {
+				t.Errorf("status = %d, want %d", rec.Code, http.StatusNoContent)
+			}
+			if got := rec.Header().Get("Access-Control-Allow-Origin"); got != tt.wantOrigin {
+				t.Errorf("Access-Control-Allow-Origin = %q, want %q", got, tt.wantOrigin)
+			}
+			if !strings.Contains(rec.Header().Get("Vary"), "Origin") {
+				t.Error("Vary header missing Origin")
+			}
+		})
 	}
 }

@@ -1,0 +1,19 @@
+:80 {
+
+    handle /api/* {
+        reverse_proxy api:8000
+    }
+
+    handle {
+        root * /srv
+
+        @html {
+            path *.html /
+        }
+
+        header @html Cache-Control "no-store"
+
+        file_server
+        try_files {path} /200.html
+    }
+}

@@ -45,6 +45,18 @@ services:
     networks:
       - mpaas
 
+  client:
+    build:
+      context: ./client
+      dockerfile: Dockerfile
+    ports:
+      - "127.0.0.1:3000:80"
+    networks:
+      - mpaas
+    depends_on:
+      - api
+
+
 volumes:
   sqlite_data:
 
