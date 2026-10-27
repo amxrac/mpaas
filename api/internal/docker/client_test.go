@@ -12,7 +12,7 @@ import (
 	"github.com/moby/moby/client"
 )
 
-type fakeDockerClient struct {
+type testDockerClient struct {
 	containerCreate  func(context.Context, client.ContainerCreateOptions) (client.ContainerCreateResult, error)
 	containerStart   func(context.Context, string, client.ContainerStartOptions) (client.ContainerStartResult, error)
 	containerStop    func(context.Context, string, client.ContainerStopOptions) (client.ContainerStopResult, error)
@@ -25,14 +25,14 @@ type fakeDockerClient struct {
 	close            func() error
 }
 
-func (f *fakeDockerClient) ContainerCreate(
+func (f *testDockerClient) ContainerCreate(
 	ctx context.Context,
 	options client.ContainerCreateOptions,
 ) (client.ContainerCreateResult, error) {
 	return f.containerCreate(ctx, options)
 }
 
-func (f *fakeDockerClient) ContainerStart(
+func (f *testDockerClient) ContainerStart(
 	ctx context.Context,
 	id string,
 	options client.ContainerStartOptions,
@@ -40,7 +40,7 @@ func (f *fakeDockerClient) ContainerStart(
 	return f.containerStart(ctx, id, options)
 }
 
-func (f *fakeDockerClient) ContainerStop(
+func (f *testDockerClient) ContainerStop(
 	ctx context.Context,
 	id string,
 	options client.ContainerStopOptions,
@@ -48,7 +48,7 @@ func (f *fakeDockerClient) ContainerStop(
 	return f.containerStop(ctx, id, options)
 }
 
-func (f *fakeDockerClient) ContainerRemove(
+func (f *testDockerClient) ContainerRemove(
 	ctx context.Context,
 	id string,
 	options client.ContainerRemoveOptions,
@@ -56,14 +56,14 @@ func (f *fakeDockerClient) ContainerRemove(
 	return f.containerRemove(ctx, id, options)
 }
 
-func (f *fakeDockerClient) ContainerList(
+func (f *testDockerClient) ContainerList(
 	ctx context.Context,
 	options client.ContainerListOptions,
 ) (client.ContainerListResult, error) {
 	return f.containerList(ctx, options)
 }
 
-func (f *fakeDockerClient) ContainerLogs(
+func (f *testDockerClient) ContainerLogs(
 	ctx context.Context,
 	id string,
 	options client.ContainerLogsOptions,
@@ -71,7 +71,7 @@ func (f *fakeDockerClient) ContainerLogs(
 	return f.containerLogs(ctx, id, options)
 }
 
-func (f *fakeDockerClient) ContainerInspect(
+func (f *testDockerClient) ContainerInspect(
 	ctx context.Context,
 	id string,
 	options client.ContainerInspectOptions,
@@ -79,7 +79,7 @@ func (f *fakeDockerClient) ContainerInspect(
 	return f.containerInspect(ctx, id, options)
 }
 
-func (f *fakeDockerClient) NetworkCreate(
+func (f *testDockerClient) NetworkCreate(
 	ctx context.Context,
 	name string,
 	options client.NetworkCreateOptions,
@@ -87,21 +87,21 @@ func (f *fakeDockerClient) NetworkCreate(
 	return f.networkCreate(ctx, name, options)
 }
 
-func (f *fakeDockerClient) Ping(
+func (f *testDockerClient) Ping(
 	ctx context.Context,
 	options client.PingOptions,
 ) (client.PingResult, error) {
 	return f.ping(ctx, options)
 }
 
-func (f *fakeDockerClient) Close() error {
+func (f *testDockerClient) Close() error {
 	return f.close()
 }
 
 func TestPing(t *testing.T) {
 	wantErr := errors.New("docker unavailable")
 
-	fake := &fakeDockerClient{
+	fake := &testDockerClient{
 		ping: func(context.Context, client.PingOptions) (client.PingResult, error) {
 			return client.PingResult{}, wantErr
 		},
@@ -124,7 +124,7 @@ func TestPing(t *testing.T) {
 }
 
 func TestPingSuccess(t *testing.T) {
-	fake := &fakeDockerClient{
+	fake := &testDockerClient{
 		ping: func(context.Context, client.PingOptions) (client.PingResult, error) {
 			return client.PingResult{}, nil
 		},
@@ -144,7 +144,7 @@ func TestEnsureNetwork(t *testing.T) {
 		gotOpts client.NetworkCreateOptions
 	)
 
-	fake := &fakeDockerClient{
+	fake := &testDockerClient{
 		networkCreate: func(
 			_ context.Context,
 			name string,
@@ -175,7 +175,7 @@ func TestEnsureNetwork(t *testing.T) {
 func TestEnsureNetworkError(t *testing.T) {
 	wantErr := errors.New("network failure")
 
-	fake := &fakeDockerClient{
+	fake := &testDockerClient{
 		networkCreate: func(
 			context.Context,
 			string,
@@ -203,7 +203,7 @@ func TestRunContainer(t *testing.T) {
 		gotStartID string
 	)
 
-	fake := &fakeDockerClient{
+	fake := &testDockerClient{
 		containerCreate: func(
 			_ context.Context,
 			options client.ContainerCreateOptions,
@@ -286,7 +286,7 @@ func TestRunContainer(t *testing.T) {
 func TestRunContainerDefaultPort(t *testing.T) {
 	var gotCreate client.ContainerCreateOptions
 
-	fake := &fakeDockerClient{
+	fake := &testDockerClient{
 		containerCreate: func(
 			_ context.Context,
 			options client.ContainerCreateOptions,
@@ -320,7 +320,7 @@ func TestRunContainerDefaultPort(t *testing.T) {
 }
 
 func TestRunContainerInvalidPort(t *testing.T) {
-	fake := &fakeDockerClient{
+	fake := &testDockerClient{
 		containerCreate: func(
 			context.Context,
 			client.ContainerCreateOptions,
@@ -347,7 +347,7 @@ func TestRunContainerInvalidPort(t *testing.T) {
 func TestRunContainerCreateError(t *testing.T) {
 	wantErr := errors.New("create failed")
 
-	fake := &fakeDockerClient{
+	test := &testDockerClient{
 		containerCreate: func(
 			context.Context,
 			client.ContainerCreateOptions,
@@ -356,7 +356,7 @@ func TestRunContainerCreateError(t *testing.T) {
 		},
 	}
 
-	c := &Client{cli: fake}
+	c := &Client{cli: test}
 
 	_, port, err := c.RunContainer(context.Background(), RunContainerOpts{
 		ContainerPort: "3000",
@@ -365,8 +365,8 @@ func TestRunContainerCreateError(t *testing.T) {
 		t.Fatal("RunContainer() expected error, got nil")
 	}
 
-	if port != 3000 {
-		t.Errorf("port = %d, want 3000", port)
+	if port != 0 {
+		t.Errorf("port = %d, want 0", port)
 	}
 
 	if !errors.Is(err, wantErr) {
@@ -379,7 +379,7 @@ func TestRunContainerStartErrorRemovesContainer(t *testing.T) {
 
 	var removedID string
 
-	fake := &fakeDockerClient{
+	fake := &testDockerClient{
 		containerCreate: func(
 			context.Context,
 			client.ContainerCreateOptions,
@@ -431,7 +431,7 @@ func TestRunContainerStartErrorRemovesContainer(t *testing.T) {
 func TestStop(t *testing.T) {
 	var gotTimeout int
 
-	fake := &fakeDockerClient{
+	fake := &testDockerClient{
 		containerStop: func(
 			_ context.Context,
 			id string,
@@ -465,7 +465,7 @@ func TestStop(t *testing.T) {
 func TestRemove(t *testing.T) {
 	var gotOpts client.ContainerRemoveOptions
 
-	fake := &fakeDockerClient{
+	fake := &testDockerClient{
 		containerRemove: func(
 			_ context.Context,
 			_ string,
@@ -498,7 +498,7 @@ func TestStopThenRemove(t *testing.T) {
 		removeCalled bool
 	)
 
-	fake := &fakeDockerClient{
+	fake := &testDockerClient{
 		containerStop: func(
 			_ context.Context,
 			id string,
@@ -555,7 +555,7 @@ func TestListManaged(t *testing.T) {
 		{ID: "container-2"},
 	}
 
-	fake := &fakeDockerClient{
+	fake := &testDockerClient{
 		containerList: func(
 			_ context.Context,
 			options client.ContainerListOptions,
@@ -589,7 +589,7 @@ func TestListManaged(t *testing.T) {
 func TestListManagedError(t *testing.T) {
 	wantErr := errors.New("list failed")
 
-	fake := &fakeDockerClient{
+	fake := &testDockerClient{
 		containerList: func(
 			context.Context,
 			client.ContainerListOptions,
@@ -615,7 +615,7 @@ func TestLogs(t *testing.T) {
 
 	body := io.NopCloser(strings.NewReader("logs"))
 
-	fake := &fakeDockerClient{
+	fake := &testDockerClient{
 		containerLogs: func(
 			_ context.Context,
 			id string,
@@ -661,7 +661,7 @@ func TestLogs(t *testing.T) {
 func TestClose(t *testing.T) {
 	called := false
 
-	fake := &fakeDockerClient{
+	fake := &testDockerClient{
 		close: func() error {
 			called = true
 			return nil

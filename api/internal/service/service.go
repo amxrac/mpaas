@@ -261,11 +261,12 @@ func (s *Service) run(ctx context.Context, deployment *models.Deployment, handle
 		NetworkName:   networkName,
 		Env:           deployment.Env,
 	})
-	deployment.ContainerPort = resolvedPort
+
 	if runErr != nil {
 		s.failDeployment(ctx, deployment, fmt.Sprintf("run container: %v", runErr))
 		return
 	}
+	deployment.ContainerPort = resolvedPort
 	success := false
 	defer func() {
 		if !success {
