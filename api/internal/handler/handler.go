@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"mime"
 	"net/http"
 	"strings"
 
@@ -45,9 +46,17 @@ func NewDeploymentHandler(
 }
 
 func (h *deploymentHandler) Create(w http.ResponseWriter, r *http.Request) {
-	var req createDeploymentRequest
+	mediaType, _, err := mime.ParseMediaType(r.Header.Get("Content-Type"))
+	if err != nil || mediaType != "application/json" {
+		writeJSON(w, http.StatusUnsupportedMediaType, apiResponse{
+			Success: false,
+			Message: "content type must be application/json",
+		})
+		return
+	}
 
-	err := json.NewDecoder(r.Body).Decode(&req)
+	var req createDeploymentRequest
+	err = json.NewDecoder(r.Body).Decode(&req)
 	if err != nil {
 		badRequest(w, "invalid request body", nil)
 		return
