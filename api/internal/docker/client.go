@@ -201,7 +201,7 @@ func (c *Client) getHostPort(ctx context.Context, containerID string, port netwo
 func resolveDockerHost(ctx context.Context) (string, error) {
 	h := os.Getenv("DOCKER_HOST")
 	if h != "" {
-		return "", nil
+		return h, nil
 	}
 
 	out, err := exec.CommandContext(
